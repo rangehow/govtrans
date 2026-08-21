@@ -35,3 +35,5 @@ data/
 .idea/
 .vscode/
 .tofu/
+# AI assistant runtime artifacts (file-history, trash, sandbox)
+.tofu*

@@ -115,12 +115,80 @@ def validate_terminology(source: str, translation: str, glossary: list[dict]) ->
     return findings
 
 
+# explicit Latin-letter boundaries: \b fails next to CJK (CJK counts as \w)
+_ACRONYM_RE = re.compile(r"(?<![A-Za-z0-9])[A-Z][A-Z0-9]{1,9}(?![A-Za-z0-9])")
+_DOC_TITLE_RE = re.compile(r"《([^》]+)》")
+_ENUM_ZH_RE = re.compile(r"、")
+
+
+def validate_acronyms(source: str, translation: str) -> list[Finding]:
+    """Latin acronyms in the source (GDP, CPC, BRI...) must survive."""
+    findings: list[Finding] = []
+    for token in sorted(set(_ACRONYM_RE.findall(source))):
+        if token not in translation:
+            findings.append({
+                "category": "acronym",
+                "severity": "major",
+                "source_span": token,
+                "target_span": "",
+                "message": f"源文缩写 {token} 未在译文中保留",
+                "suggested_fix": f"保留缩写 {token}",
+            })
+    return findings
+
+
+def validate_entities(source: str, translation: str) -> list[Finding]:
+    """《...》 document/work titles: count parity between source and target.
+    Chinese book-title marks have no English equivalent — the translation
+    must render them as quotes or italics, never drop them."""
+    findings: list[Finding] = []
+    titles = _DOC_TITLE_RE.findall(source)
+    if not titles:
+        return findings
+    quoted = re.findall(r'"[^"]+"|\'[^\']+\'|“[^”]+”', translation)
+    if len(quoted) < len(titles):
+        for title in titles:
+            findings.append({
+                "category": "entity",
+                "severity": "major",
+                "source_span": f"《{title}》",
+                "target_span": "",
+                "message": f"文献名《{title}》可能在译文中缺失（引号/斜体计数不足）",
+                "suggested_fix": f"确认《{title}》已以引号或斜体形式译出",
+            })
+    return findings
+
+
+def validate_enumerations(source: str, translation: str) -> list[Finding]:
+    """Chinese enumerations (A、B、C) must survive as parallel English lists.
+    Heuristic: N 顿号 separators imply at least N parallel separators
+    (commas / and / or) in the translation."""
+    findings: list[Finding] = []
+    zh_seps = len(_ENUM_ZH_RE.findall(source))
+    if zh_seps < 1:
+        return findings
+    en_seps = translation.count(",") + len(re.findall(r"\band\b|\bor\b", translation))
+    if en_seps < zh_seps:
+        findings.append({
+            "category": "enumeration",
+            "severity": "major",
+            "source_span": f"{zh_seps + 1} 项并列",
+            "target_span": "",
+            "message": f"源文 {zh_seps + 1} 项并列结构在译文中疑似丢失（并列连词/逗号不足）",
+            "suggested_fix": "检查并列项是否全部译出且结构平行",
+        })
+    return findings
+
+
 def run_deterministic(source: str, translation: str, glossary: list[dict] | None = None) -> list[Finding]:
     findings: list[Finding] = []
     findings += validate_numbers(source, translation)
     findings += validate_dates(source, translation)
     findings += validate_brackets(source, translation)
     findings += validate_quotes(source, translation)
+    findings += validate_acronyms(source, translation)
+    findings += validate_entities(source, translation)
+    findings += validate_enumerations(source, translation)
     if glossary:
         findings += validate_terminology(source, translation, glossary)
     return findings

@@ -55,6 +55,30 @@ def term_create(source_term: str, preferred_target: str, *, domain: str | None =
         return term.id
 
 
+def term_update(term_id: str, *, preferred_target: str | None = None,
+                domain: str | None = None, context: str | None = None,
+                actor: str = "system") -> bool:
+    """Update mutable fields; every change goes to the audit log (§35)."""
+    with SessionLocal() as session:
+        term = session.get(Term, term_id)
+        if not term:
+            return False
+        before = {"preferred_target": term.preferred_target,
+                  "domain": term.domain, "context": term.context}
+        if preferred_target is not None:
+            term.preferred_target = preferred_target
+        if domain is not None:
+            term.domain = domain
+        if context is not None:
+            term.context = context
+        after = {"preferred_target": term.preferred_target,
+                 "domain": term.domain, "context": term.context}
+        session.add(TermAuditLog(term_id=term.id, action="update",
+                                 before=before, after=after, actor=actor))
+        session.commit()
+        return True
+
+
 def term_deprecate(term_id: str, *, actor: str = "system") -> bool:
     with SessionLocal() as session:
         term = session.get(Term, term_id)

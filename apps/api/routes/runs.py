@@ -114,6 +114,36 @@ def run_cost(run_id: str):
     return {"total": total, "by_role": by_role}
 
 
+@router.get("/{run_id}/export")
+def export_run_endpoint(run_id: str, format: str = "docx"):
+    from fastapi.responses import Response
+
+    from services.export.exporters import FORMATS, export_run
+
+    if format not in FORMATS:
+        raise HTTPException(400, f"format must be one of {FORMATS}")
+    with SessionLocal() as session:
+        run = session.get(TranslationRun, run_id)
+        if not run:
+            raise HTTPException(404, "run not found")
+        run_dict = {
+            "id": run.id, "direction": run.direction, "status": run.status,
+            "summary": run.summary, "confidentiality": run.confidentiality,
+            "pipeline_version": run.pipeline_version, "version_pins": run.version_pins,
+        }
+        segments = [
+            {"idx": s.idx, "source": s.source, "translation": s.translation,
+             "versions": s.versions}
+            for s in run.segments
+        ]
+    result = export_run(run_dict, segments, format)
+    return Response(
+        content=result.content,
+        media_type=result.media_type,
+        headers={"Content-Disposition": f'attachment; filename="{result.filename}"'},
+    )
+
+
 @router.get("/{run_id}/events")
 async def run_events(
     run_id: str,

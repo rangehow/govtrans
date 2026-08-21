@@ -29,6 +29,12 @@
 
 ## Entries
 
+### 2026-08-21 — E07/E11/E14/E17 落地：术语闭环、QA 全家桶、三栏 Workspace、导出引擎
+- **Change:** ①QA validators 补齐 8/8（新增 acronym/entity《》/enumeration，acronym 用显式 Latin 边界——`\b` 在 CJK 旁失效的坑）；②Export Engine（txt/md/json/xliff/tmx/docx/docx_bilingual，python-docx，双语表格）+ `/api/runs/{id}/export` 实测 200/400；③terminology 补 term_update + history 端点，create/update/deprecate 全审计；④前端升级三栏 Workspace（Source/Translation/Intelligence tab：Activity/References/QA/History，segment 对齐高亮 + scrollIntoView，键盘可达）。72 单测全绿，前端 build 通过。
+- **Why:** 任务书 §22/§39/§35/§28。全部不依赖 LLM key，属“离线可验证”增量。
+- **Lesson:** uvicorn 旧进程残留导致新代码 404——`fuser -k` 静默失败后应以 `ss -tlnp` 验证端口真空再启动；验收新端点前先确认进程启动时间。
+- **Next:** E06 TM 语义检索、E08 hybrid retrieval、E15 Knowledge admin UI、E16 Evaluation、E20 E2E。LLM key 仍是全链路验收唯一外部依赖。
+
 ### 2026-08-21 — E04/E05 落地：语料摄入 + 平行对齐管线
 - **Change:** 新增 `services/corpus/`（models/parser/crawler/aligner/dedup/ingest）+ `scripts/ingest_corpus.py` CLI + `/api/corpus/*` 只读端点 + 迁移 `a45ac689115a`；51 单测全绿。CLI 真实验证：4 段双语白皮书片段 → 2 高锚点句对（0.85/0.76）对齐并 promoted 进 TM（authority=official_aligned，带 provenance 回链）。
 - **Why:** 任务书 §11/§12。对齐用确定性 DP（长度比对数高斯 + 数字锚点），不依赖模型/网络，离线可测；语义向量打分留给 E06/E08（需 EMBEDDING_MODEL key）。单句段落只产 sentence 级行，避免 paragraph/sentence 同文本重复。
