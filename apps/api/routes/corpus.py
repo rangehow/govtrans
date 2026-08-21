@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from apps.api.db import SessionLocal
@@ -33,6 +34,57 @@ def list_pairs(limit: int = 50):
              "status": p.status}
             for p in rows
         ]}
+
+
+class AlignmentReviewRequest(BaseModel):
+    status: str = Field(pattern="^(approved|rejected)$")
+    zh_text: str | None = None  # human correction (§34)
+    en_text: str | None = None
+
+
+@router.patch("/alignments/{alignment_id}")
+def review_alignment(alignment_id: str, body: AlignmentReviewRequest):
+    """Human review of an aligned pair. Approving (or correcting) a pair
+    updates translation memory immediately (§34)."""
+    from services.retrieval.models import TMEntry
+
+    with SessionLocal() as session:
+        pair = session.get(AlignedPair, alignment_id)
+        if not pair:
+            raise HTTPException(404, "alignment not found")
+        if body.zh_text is not None:
+            pair.zh_text = body.zh_text
+        if body.en_text is not None:
+            pair.en_text = body.en_text
+        pair.status = body.status
+        tm_result = None
+        if body.status == "approved":
+            tm = session.get(TMEntry, pair.tm_entry_id) if pair.tm_entry_id else None
+            if tm is None:
+                tm = session.execute(
+                    select(TMEntry).where(TMEntry.source == pair.zh_text)
+                ).scalar_one_or_none()
+            if tm is None:
+                tm = TMEntry(
+                    source=pair.zh_text, target=pair.en_text,
+                    authority="official_verified",  # human-reviewed
+                    provenance={"aligned_pair_id": pair.id, "pair_id": pair.pair_id,
+                                "reviewed": True},
+                )
+                session.add(tm)
+                session.flush()
+                pair.tm_entry_id = tm.id
+            else:
+                tm.source, tm.target = pair.zh_text, pair.en_text
+                tm.authority = "official_verified"
+            tm_result = tm.id
+        elif pair.tm_entry_id:
+            tm = session.get(TMEntry, pair.tm_entry_id)
+            if tm:
+                session.delete(tm)
+            pair.tm_entry_id = None
+        session.commit()
+        return {"status": pair.status, "tm_entry_id": tm_result if body.status == "approved" else None}
 
 
 @router.get("/pairs/{pair_id}/alignments")

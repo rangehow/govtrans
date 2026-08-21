@@ -92,30 +92,5 @@ def term_deprecate(term_id: str, *, actor: str = "system") -> bool:
         return True
 
 
-def tm_search(text: str, *, document_type: str | None = None, domain: str | None = None,
-              top_k: int = 5) -> list[dict]:
-    """Lexical + metadata TM search. Returns evidence dicts with authority.
-    Semantic ranking plugs in here once embeddings are populated (E06)."""
-    with SessionLocal() as session:
-        stmt = select(TMEntry)
-        if document_type:
-            stmt = stmt.where(TMEntry.document_type == document_type)
-        if domain:
-            stmt = stmt.where(TMEntry.domain == domain)
-        rows = session.execute(stmt.limit(500)).scalars().all()
-    # Overlap scoring in Python: cheap, deterministic, dialect-portable.
-    query_terms = set(text)
-    scored = []
-    for row in rows:
-        overlap = sum(1 for ch in set(row.source) if ch in query_terms)
-        score = overlap / max(len(set(row.source)), 1)
-        if score > 0.15:
-            scored.append((score, row))
-    scored.sort(key=lambda item: item[0], reverse=True)
-    return [
-        {
-            "source": r.source, "target": r.target, "score": round(score, 3),
-            "source_document": r.source_document, "url": r.url, "authority": r.authority,
-        }
-        for score, r in scored[:top_k]
-    ]
+# tm_search moved to services.retrieval.tm (BM25 + authority rerank, E06/E08).
+from services.retrieval.tm import tm_search  # noqa: E402,F401  (back-compat re-export)

@@ -37,12 +37,13 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     app = FastAPI(title="GovTrans API", version="0.1.0", lifespan=lifespan)
-    from apps.api.routes import corpus, health, runs, terms
+    from apps.api.routes import benchmarks, corpus, health, runs, terms
 
     app.include_router(health.router)
     app.include_router(runs.router)
     app.include_router(terms.router)
     app.include_router(corpus.router)
+    app.include_router(benchmarks.router)
     return app
 
 

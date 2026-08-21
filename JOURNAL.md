@@ -29,6 +29,12 @@
 
 ## Entries
 
+### 2026-08-21 — E06/E08/E15/E16/E18：BM25 检索、评测体系、Admin UI、防泄漏守卫
+- **Change:** ①TM 检索升级为真 Okapi BM25（CJK bigram + Latin 词元）+ authority 加权 rerank（`services/retrieval/{bm25,tm}.py`）；②Evaluation 框架：gold set JSONL 加载器（含 meta 版本行）、chrF/numbers/terminology 确定性指标、run_benchmark（驱动真实 orchestrator）+ run_baseline（§38 单遍基线，永不删除）+ compare_to_baseline 回归门槛（±0.01）、`/api/benchmarks` 端点、种子 gold set（3 条官方标准译法）；③QueryLeakGuard 分级单测（CONFIDENTIAL 全阻/INTERNAL 仅官方/PUBLIC 全通 + 截断）；④前端 Knowledge Admin：术语管理（搜索/新建/行内编辑/弃用/审计历史）+ 语料管理（pair 列表→对齐审核 approve/reject/修正，PATCH 即联动态 TM，official_verified）。84 单测全绿，前端 build 通过。
+- **Why:** 任务书 §12/§15/§36-38/§17/§34-35。
+- **Lesson:** ①评测公平性 bug——baseline 用空 glossary 打术语分导致虚高 1.0，回归门永远报 regression；对比实验必须同尺。②BM25 语料须先分词再入库，直接喂原文串会按单字统计零匹配。③对齐审核 approve 时若 TM 已有同源条目应更新而非新建（去重）。
+- **Next:** E09 风格蒸馏、E10 翻译管线加固（多 segment 并发）、E19 生产加固（Redis 事件总线、PG 实测）、E20 E2E+regression。LLM key 到位后即可跑真 benchmark 对比 pipeline vs baseline。
+
 ### 2026-08-21 — E07/E11/E14/E17 落地：术语闭环、QA 全家桶、三栏 Workspace、导出引擎
 - **Change:** ①QA validators 补齐 8/8（新增 acronym/entity《》/enumeration，acronym 用显式 Latin 边界——`\b` 在 CJK 旁失效的坑）；②Export Engine（txt/md/json/xliff/tmx/docx/docx_bilingual，python-docx，双语表格）+ `/api/runs/{id}/export` 实测 200/400；③terminology 补 term_update + history 端点，create/update/deprecate 全审计；④前端升级三栏 Workspace（Source/Translation/Intelligence tab：Activity/References/QA/History，segment 对齐高亮 + scrollIntoView，键盘可达）。72 单测全绿，前端 build 通过。
 - **Why:** 任务书 §22/§39/§35/§28。全部不依赖 LLM key，属“离线可验证”增量。

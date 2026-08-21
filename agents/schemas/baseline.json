@@ -1,0 +1,5 @@
+{
+  "type": "object",
+  "required": ["translation"],
+  "properties": {"translation": {"type": "string"}}
+}

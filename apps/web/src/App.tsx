@@ -2,11 +2,14 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { cancelRun, createRun, getRun, openEventStream } from './api'
 import TranslateInput from './components/TranslateInput'
 import Workspace from './components/Workspace'
+import TermsAdmin from './components/TermsAdmin'
+import CorpusAdmin from './components/CorpusAdmin'
 import type { Confidentiality, Run, RunEvent } from './types'
 
 const TERMINAL: Run['status'][] = ['COMPLETED', 'FAILED', 'CANCELLED', 'WAITING_HUMAN_REVIEW']
 
 export default function App() {
+  const [activeTab, setActiveTab] = useState<'translate' | 'terms' | 'corpus'>('translate')
   const [run, setRun] = useState<Run | null>(null)
   const [events, setEvents] = useState<RunEvent[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -84,26 +87,55 @@ export default function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <h1>GovTrans</h1>
+        <div className="header-top-row">
+          <h1>GovTrans</h1>
+          <nav className="app-nav">
+            <button
+              className={`nav-btn ${activeTab === 'translate' ? 'active' : ''}`}
+              onClick={() => setActiveTab('translate')}
+            >
+              翻译工作台
+            </button>
+            <button
+              className={`nav-btn ${activeTab === 'terms' ? 'active' : ''}`}
+              onClick={() => setActiveTab('terms')}
+            >
+              术语管理
+            </button>
+            <button
+              className={`nav-btn ${activeTab === 'corpus' ? 'active' : ''}`}
+              onClick={() => setActiveTab('corpus')}
+            >
+              语料管理
+            </button>
+          </nav>
+        </div>
         <p>基于官方语料的政务翻译生产系统 — 三栏智能工作空间</p>
       </header>
 
       <main className="app-main">
-        <TranslateInput busy={busy} onSubmit={submit} />
-        {error && (
-          <div role="alert" className="error-banner">
-            {error}
-          </div>
+        {activeTab === 'translate' && (
+          <>
+            <TranslateInput busy={busy} onSubmit={submit} />
+            {error && (
+              <div role="alert" className="error-banner">
+                {error}
+              </div>
+            )}
+            <Workspace
+              run={run}
+              events={events}
+              busy={busy}
+              selectedSegmentId={selectedSegmentId}
+              onSelectSegment={setSelectedSegmentId}
+              onCancelRun={handleCancel}
+            />
+          </>
         )}
 
-        <Workspace
-          run={run}
-          events={events}
-          busy={busy}
-          selectedSegmentId={selectedSegmentId}
-          onSelectSegment={setSelectedSegmentId}
-          onCancelRun={handleCancel}
-        />
+        {activeTab === 'terms' && <TermsAdmin />}
+
+        {activeTab === 'corpus' && <CorpusAdmin />}
       </main>
     </div>
   )

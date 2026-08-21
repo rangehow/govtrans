@@ -1,0 +1,4 @@
+{"id": "__meta__", "version": "0.1.0", "note": "seed gold set — official renderings from published SCIO/white-paper usage"}
+{"id": "g001", "source": "推动高质量发展，加快构建新发展格局。", "reference": "Promote high-quality development and accelerate the creation of a new development pattern.", "domain": "economy", "document_type": "policy_document", "glossary": [{"source": "高质量发展", "target": "high-quality development"}, {"source": "新发展格局", "target": "new development pattern"}]}
+{"id": "g002", "source": "2023年，清洁能源消费比重达到26.4%。", "reference": "In 2023, the share of clean energy consumption reached 26.4%.", "domain": "environment", "document_type": "white_paper"}
+{"id": "g003", "source": "坚持以人民为中心的发展思想。", "reference": "Adhere to the people-centered philosophy of development.", "domain": "governance", "document_type": "policy_document", "glossary": [{"source": "以人民为中心", "target": "people-centered"}]}
