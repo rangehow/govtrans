@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "required": ["document_type", "domain", "summary", "key_points", "tone"],
+  "properties": {
+    "document_type": {"type": "string"},
+    "domain": {"type": "string"},
+    "summary": {"type": "string"},
+    "key_points": {"type": "array", "items": {"type": "string"}},
+    "tone": {"type": "string"}
+  }
+}

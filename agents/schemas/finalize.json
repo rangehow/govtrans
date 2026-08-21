@@ -1,0 +1,19 @@
+{
+  "type": "object",
+  "required": ["final_translation", "changes"],
+  "properties": {
+    "final_translation": {"type": "string"},
+    "changes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["before", "after", "reason_category"],
+        "properties": {
+          "before": {"type": "string"},
+          "after": {"type": "string"},
+          "reason_category": {"type": "string"}
+        }
+      }
+    }
+  }
+}

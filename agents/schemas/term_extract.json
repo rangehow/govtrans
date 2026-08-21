@@ -1,0 +1,18 @@
+{
+  "type": "object",
+  "required": ["terms"],
+  "properties": {
+    "terms": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["source", "proposed_target", "needs_official_check"],
+        "properties": {
+          "source": {"type": "string"},
+          "proposed_target": {"type": "string"},
+          "needs_official_check": {"type": "boolean"}
+        }
+      }
+    }
+  }
+}

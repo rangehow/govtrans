@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "govtrans"
+version = "0.1.0"
+description = "Production-grade evidence-driven government translation platform (Chinese → English)"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "sqlalchemy>=2.0",
+    "alembic>=1.13",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "httpx>=0.27",
+    "sse-starlette>=2.1",
+    "redis>=5.0",
+    "openai>=1.40",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["apps*", "services*", "agents*", "pipelines*", "tools*", "evaluation*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+markers = [
+    "unit: fast, isolated unit tests (no network/DB)",
+    "integration: tests touching DB/redis/external services",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
