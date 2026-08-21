@@ -18,5 +18,6 @@ from apps.api.db import Base, engine  # noqa: E402
 from services.orchestrator import models as _m1  # noqa: E402,F401
 from services.retrieval import models as _m2  # noqa: E402,F401
 from services.terminology import models as _m3  # noqa: E402,F401
+from services.corpus import models as _m4  # noqa: E402,F401
 
 Base.metadata.create_all(engine)

@@ -29,6 +29,12 @@
 
 ## Entries
 
+### 2026-08-21 — E04/E05 落地：语料摄入 + 平行对齐管线
+- **Change:** 新增 `services/corpus/`（models/parser/crawler/aligner/dedup/ingest）+ `scripts/ingest_corpus.py` CLI + `/api/corpus/*` 只读端点 + 迁移 `a45ac689115a`；51 单测全绿。CLI 真实验证：4 段双语白皮书片段 → 2 高锚点句对（0.85/0.76）对齐并 promoted 进 TM（authority=official_aligned，带 provenance 回链）。
+- **Why:** 任务书 §11/§12。对齐用确定性 DP（长度比对数高斯 + 数字锚点），不依赖模型/网络，离线可测；语义向量打分留给 E06/E08（需 EMBEDDING_MODEL key）。单句段落只产 sentence 级行，避免 paragraph/sentence 同文本重复。
+- **Lesson:** ①alembic autogenerate 空迁移事故——env.py 漏 import 新 models 模块，版本戳被打上但表未建；已存 memory 防再犯。②运行中的 uvicorn 持 SQLite WAL 写锁会卡住迁移，先停 API 再迁移。③脚本直接运行需自插 repo root 到 sys.path（scripts/ 下的 python script 不会自动加项目根）。
+- **Next:** E06 TM 语义检索（pgvector+embedding）；E07 术语库种子；E14 三栏 Workspace。等用户提供 `DASHSCOPE_API_KEY` 后跑通 §53 全验收。
+
 ### 2026-08-21 — 第一阶段完成：E00–E03 落地（安全引导 / 基础设施 / ToFu 集成 / Run·Event 引擎）
 - **Change:** 从空仓库建成可运行的 GovTrans 第一阶段：FastAPI(:8100) + Orchestrator（14 阶段 deterministic stage graph，含 release gate 与 WAITING_HUMAN_REVIEW）+ TofuClient（幂等/SSE cursor resume/重试）+ React 前端（SSE 驱动时间线）+ Alembic 迁移 + docker-compose + 7 份 docs + 32 个单测全绿。首次提交 `7bc98a1`（100 文件）。
 - **Why:** 任务书 §52 Task 1-10。关键决策：sync SQLAlchemy（SQLite dev / Postgres prod 一套代码，DATABASE_URL 切换）；prompts/schemas 存 `agents/` 文件而非 Python 字符串；事件 phase 统一为 stage id（开发中发现 create/stage 事件 phase 命名不一致导致前端映射失效）；`pkill -f` 会匹配自身 shell 命令行导致自杀，改用 `fuser -k <port>/tcp`。
