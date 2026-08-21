@@ -412,38 +412,52 @@ class Orchestrator:
             f"### {name}\n{load_skill_rules(name)}" for name in DEFAULT_SKILLS
         )
         total = len(segments)
-        previous_context = ""
-        for done, (seg_id, idx, source, translation, status) in enumerate(segments):
-            if self._is_cancelled(run_id):
-                return
-            if status != "pending":  # idempotent resume
-                previous_context = translation or previous_context
-                continue
-            result = await llm.call_role(
-                tofu=self.tofu, settings=self.settings, role="translator",
-                prompt_name="translate_segment",
-                variables={
-                    "summary": summary,
-                    "section_context": f"第 {idx + 1}/{total} 段",
-                    "previous_context": previous_context or "(首段)",
-                    "glossary": glossary,
-                    "references": references.get(seg_id, []),
-                    "style_rules": style_rules,
-                    "source_segment": source,
-                },
-                schema_name="translation", model=self.settings.translator_model, run_id=run_id,
-            )
-            with SessionLocal() as session:
-                seg = session.get(Segment, seg_id)
-                seg.translation = result["translation"]
-                seg.versions = {"ai_draft": result["translation"]}
-                seg.status = "translated"
-                session.commit()
-            previous_context = result["translation"]
-            self.emit(run_id, "translate.segment", "translate", "progress",
-                      f"句段 {idx + 1}/{total} 已翻译",
-                      (result.get("uncertainties") or [None])[0],
-                      progress=None, segment_ids=[seg_id])
+        pending = [(s, i, src) for s, i, src, _t, st in segments if st == "pending"]
+        if not pending:  # idempotent resume: everything already translated
+            return
+        # Bounded concurrency (E10): LLM calls dominate wall time. Context for
+        # cohesion is the previous segment's SOURCE (always available) — the
+        # summary carries global cohesion; see docs/TRANSLATION_PIPELINE.md.
+        semaphore = asyncio.Semaphore(4)
+
+        async def do_segment(seg_id: str, idx: int, source: str) -> None:
+            async with semaphore:
+                if self._is_cancelled(run_id):
+                    return
+                previous_context = segments[idx - 1][2] if idx > 0 else "(首段)"
+                result = await llm.call_role(
+                    tofu=self.tofu, settings=self.settings, role="translator",
+                    prompt_name="translate_segment",
+                    variables={
+                        "summary": summary,
+                        "section_context": f"第 {idx + 1}/{total} 段",
+                        "previous_context": previous_context,
+                        "glossary": glossary,
+                        "references": references.get(seg_id, []),
+                        "style_rules": style_rules,
+                        "source_segment": source,
+                    },
+                    schema_name="translation", model=self.settings.translator_model,
+                    run_id=run_id,
+                )
+                with SessionLocal() as session:
+                    seg = session.get(Segment, seg_id)
+                    seg.translation = result["translation"]
+                    seg.versions = {"ai_draft": result["translation"]}
+                    seg.status = "translated"
+                    session.commit()
+                self.emit(run_id, "translate.segment", "translate", "progress",
+                          f"句段 {idx + 1}/{total} 已翻译",
+                          (result.get("uncertainties") or [None])[0],
+                          segment_ids=[seg_id])
+
+        tasks = [asyncio.create_task(do_segment(s, i, src)) for s, i, src in pending]
+        try:
+            await asyncio.gather(*tasks)
+        except BaseException:
+            for task in tasks:
+                task.cancel()
+            raise
 
     async def _stage_deterministic_qa(self, run_id: str) -> None:
         self._replace_issues(run_id, reviewer="deterministic_qa")

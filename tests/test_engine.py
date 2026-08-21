@@ -122,6 +122,47 @@ class TestReleaseGate:
         assert open_critical > 0
 
 
+class TestTranslateConcurrency:
+    def test_bounded_concurrency(self, orchestrator, monkeypatch):
+        import services.orchestrator.engine as eng
+
+        concurrent = 0
+        peak = 0
+
+        async def fake(*, prompt_name, variables, **kwargs):
+            nonlocal concurrent, peak
+            if prompt_name == "analyze":
+                return {"document_type": "policy_document", "domain": "economy",
+                        "summary": "s", "key_points": [], "tone": "formal"}
+            if prompt_name == "term_extract":
+                return {"terms": []}
+            if prompt_name == "translate_segment":
+                concurrent += 1
+                peak = max(peak, concurrent)
+                await asyncio.sleep(0.05)
+                concurrent -= 1
+                return {"translation": f"EN: {variables['source_segment']}",
+                        "terms_used": [], "evidence_refs": [], "uncertainties": []}
+            if prompt_name == "review":
+                return {"issues": []}
+            raise AssertionError(prompt_name)
+
+        async def no_search(*a, **k):
+            return []
+
+        monkeypatch.setattr(roles_llm, "call_role", fake)
+        monkeypatch.setattr(eng, "official_search", no_search)
+        source = "\n".join(f"第{i}段内容。" for i in range(10))
+        run_id = orchestrator.create_run(source_text=source, confidentiality="PUBLIC")
+        asyncio.run(orchestrator.execute(run_id))
+        with SessionLocal() as session:
+            run = session.get(TranslationRun, run_id)
+            done = session.query(Segment).filter_by(run_id=run_id, status="final").count()
+        assert run.status == RunStatus.COMPLETED
+        assert done == 10
+        assert 1 < peak <= 4  # parallel but bounded
+
+
 class TestIdempotency:
     def test_reexecute_completed_run_is_noop(self, orchestrator, monkeypatch):
         source = "统筹发展和安全。"

@@ -4,7 +4,7 @@ register.
 
 Document summary: {{summary}}
 Section context: {{section_context}}
-Previous segment translation (for cohesion): {{previous_context}}
+Previous segment (source text, for cohesion): {{previous_context}}
 
 MANDATORY document glossary — use these renderings exactly; do not improvise:
 {{glossary}}
