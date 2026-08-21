@@ -29,6 +29,12 @@
 
 ## Entries
 
+### 2026-08-21 — E09 落地：风格蒸馏管线（语料 → 规则候选 → 人审 → skill version）
+- **Change:** `pipelines/style_distillation/`（models + mine）：确定性 phrase mining——6 个种子句式 cue（以…为…/坚持…/全面…/加快…/推动…/…共同体）× 英文渲染族正则，support≥2 且 confidence=support/total 才入 `style_rules`（candidate）；`/api/style-rules`（list/review）+ `scripts/distill_style.py`；87 单测全绿（含幂等重跑、低分对忽略、upsert 不重复）。
+- **Why:** 任务书 §19。Skill=rules/Corpus=evidence/Glossary=terminology 三分离的落地：挖出的只是 candidate，人审 approve 后才进入 skill version（EVALUATION 回归门配套）。
+- **Lesson:** 共享测试库 + 累计 support 语义 → 夹具必须先清表；隔离性断言要考虑跨测试累积。
+- **Next（所剩均为 key/环境门）:** E10 管线加固（多 segment 并发、token 预算）、E19 PG/Redis 实测与 Redis 事件总线、E20 真实 E2E+regression。这些都以 `DASHSCOPE_API_KEY` 或 docker daemon 为前提。
+
 ### 2026-08-21 — E06/E08/E15/E16/E18：BM25 检索、评测体系、Admin UI、防泄漏守卫
 - **Change:** ①TM 检索升级为真 Okapi BM25（CJK bigram + Latin 词元）+ authority 加权 rerank（`services/retrieval/{bm25,tm}.py`）；②Evaluation 框架：gold set JSONL 加载器（含 meta 版本行）、chrF/numbers/terminology 确定性指标、run_benchmark（驱动真实 orchestrator）+ run_baseline（§38 单遍基线，永不删除）+ compare_to_baseline 回归门槛（±0.01）、`/api/benchmarks` 端点、种子 gold set（3 条官方标准译法）；③QueryLeakGuard 分级单测（CONFIDENTIAL 全阻/INTERNAL 仅官方/PUBLIC 全通 + 截断）；④前端 Knowledge Admin：术语管理（搜索/新建/行内编辑/弃用/审计历史）+ 语料管理（pair 列表→对齐审核 approve/reject/修正，PATCH 即联动态 TM，official_verified）。84 单测全绿，前端 build 通过。
 - **Why:** 任务书 §12/§15/§36-38/§17/§34-35。

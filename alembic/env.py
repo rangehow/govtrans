@@ -14,6 +14,7 @@ from apps.api.db import Base
 
 # Import every model module so metadata is complete for autogenerate.
 from evaluation import models as _eval_models  # noqa: F401
+from pipelines.style_distillation import models as _style_models  # noqa: F401
 from services.corpus import models as _corpus_models  # noqa: F401
 from services.orchestrator import models as _run_models  # noqa: F401
 from services.retrieval import models as _retrieval_models  # noqa: F401
