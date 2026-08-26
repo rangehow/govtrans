@@ -29,6 +29,10 @@
 
 ## Entries
 
+### 2026-08-26 — 本地全链路启动验证通过（LLM key 已就位）
+- **Change:** `.env` 已含 `DASHSCOPE_API_KEY`（此前的唯一外部阻塞项解除）。启动顺序：`make migrate`（SQLite 已在 head）→ uvicorn :8100（/api/runs 200）→ Vite :3000（200）→ `scripts/smoke_agent_call.py` 真实 ToFu→DashScope 调用 status=done。
+- **Result / status:** ToFu runtime 常驻 :15000；API/前端 nohup 后台运行（日志 /tmp/govtrans-api.log、/tmp/govtrans-web.log）。E20（真实 E2E + benchmark vs baseline 回归）的外部前提已全部满足。
+
 ### 2026-08-21 — E09 落地：风格蒸馏管线（语料 → 规则候选 → 人审 → skill version）
 - **Change:** `pipelines/style_distillation/`（models + mine）：确定性 phrase mining——6 个种子句式 cue（以…为…/坚持…/全面…/加快…/推动…/…共同体）× 英文渲染族正则，support≥2 且 confidence=support/total 才入 `style_rules`（candidate）；`/api/style-rules`（list/review）+ `scripts/distill_style.py`；87 单测全绿（含幂等重跑、低分对忽略、upsert 不重复）。
 - **Why:** 任务书 §19。Skill=rules/Corpus=evidence/Glossary=terminology 三分离的落地：挖出的只是 candidate，人审 approve 后才进入 skill version（EVALUATION 回归门配套）。

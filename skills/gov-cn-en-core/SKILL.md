@@ -6,20 +6,8 @@ description: 政务中译英核心规则 — 所有政务翻译运行的默认�
 
 # 政务中译英核心规则
 
-## 权威译法（不得擅自改写）
-
-- 高质量发展 → high-quality development
-- 新发展格局 → the new development pattern
-- 以人民为中心 / 坚持以人民为中心 → people-centered (philosophy of development)
-- 供给侧结构性改革 → supply-side structural reform
-- 共同富裕 → common prosperity
-- 一带一路 → the Belt and Road Initiative (BRI)
-- 中国特色社会主义 → socialism with Chinese characteristics
-- 全过程人民民主 → whole-process people's democracy
-- 人类命运共同体 → a human community with a shared future / a community with a shared future for humanity
-- 国务院 → the State Council
-- 全国人民代表大会 → the National People's Congress (NPC)
-- 中国人民政治协商会议 → the Chinese People's Political Consultative Conference (CPPCC)
+本 Skill 只定义跨文种的政务英语写作规则，不定义固定译法。固定译法必须来自
+可审计、可人工编辑的术语库或任务级术语约束，不得从文风规则中隐式注入。
 
 ## 句式规则
 

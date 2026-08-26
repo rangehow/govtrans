@@ -1,12 +1,21 @@
 import type { Run, RunEvent, Segment, Issue } from '../types'
 
 export interface WorkspaceProps {
-  run: Run | null
+  run: Run
   events: RunEvent[]
-  busy: boolean
   selectedSegmentId: string | null
+  connection: 'idle' | 'connecting' | 'live' | 'reconnecting'
+  continuing: boolean
   onSelectSegment: (id: string | null) => void
   onCancelRun: (runId: string) => void
+  onContinueRun: (runId: string) => void
+  onUpdateSegment: (
+    runId: string,
+    segmentId: string,
+    translation: string,
+    issueId?: string,
+  ) => Promise<void>
+  onNewRun: () => void
 }
 
 export interface SourceColumnProps {
@@ -25,6 +34,12 @@ export interface IntelligencePanelProps {
   run: Run
   events: RunEvent[]
   selectedSegmentId: string | null
+  selectedIssueId: string | null
+  editingIssueId: string | null
+  onSelectIssue: (issue: Issue) => void
+  onEditIssue: (issue: Issue) => void
+  onCancelEditIssue: () => void
+  onSaveIssue: (issue: Issue, translation: string) => Promise<void>
 }
 
 export interface VersionHistoryProps {

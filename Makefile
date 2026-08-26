@@ -1,4 +1,4 @@
-.PHONY: scan test test-unit dev-api dev-web migrate
+.PHONY: scan test test-unit dev-api dev-web migrate deploy-init deploy-up deploy-doctor deploy-backup deploy-package
 
 # Secret scan — must pass before every commit (also wired into CI later).
 scan:
@@ -19,3 +19,18 @@ dev-api:
 
 dev-web:
 	cd apps/web && npm run dev
+
+deploy-init:
+	./scripts/deploy.sh init
+
+deploy-up:
+	./scripts/deploy.sh up
+
+deploy-doctor:
+	./scripts/deploy.sh doctor
+
+deploy-backup:
+	./scripts/deploy.sh backup
+
+deploy-package:
+	./scripts/package_deployment.sh

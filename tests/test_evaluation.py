@@ -60,13 +60,27 @@ def faked_orchestrator(monkeypatch):
                     "summary": "s", "key_points": [], "tone": "formal"}
         if prompt_name == "term_extract":
             return {"terms": []}
-        if prompt_name == "translate_segment":
+        if prompt_name == "translate_batch":
             # decent-but-imperfect pipeline translation
-            return {"translation": "Promote high-quality development and accelerate "
-                                   "the creation of a new development pattern.",
-                    "terms_used": [], "evidence_refs": [], "uncertainties": []}
-        if prompt_name == "review":
+            return {"segments": [{
+                        "id": item["id"],
+                        "translation": "Promote high-quality development and accelerate "
+                                       "the creation of a new development pattern.",
+                    } for item in variables["segments"] if item["needs_translation"]],
+                    "uncertainties": []}
+        if prompt_name in {"document_review", "coherence_review"}:
             return {"issues": []}
+        if prompt_name == "finalize_batch":
+            return {
+                "segments": [
+                    {
+                        "id": item["id"],
+                        "final_translation": item["current_translation"],
+                        "changes": [],
+                    }
+                    for item in variables["segments"]
+                ]
+            }
         if prompt_name == "finalize":
             return {"final_translation": variables["translation"], "changes": []}
         if prompt_name == "baseline_translate":

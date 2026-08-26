@@ -9,7 +9,7 @@ COPY apps/web/package*.json ./
 
 # Install dependencies with configurable registry
 RUN npm config set registry ${NPM_REGISTRY} && \
-    npm install
+    npm ci
 
 # Copy frontend source code
 COPY apps/web/ ./

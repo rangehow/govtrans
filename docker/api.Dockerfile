@@ -1,28 +1,28 @@
-FROM python:3.12-slim
+# syntax=docker/dockerfile:1.7
 
-# Install system dependencies (curl for healthcheck, build tools if needed)
+ARG PYTHON_IMAGE=python:3.12-slim@sha256:2c941e860699f878900b0edc2403613c234d4b32eda3cc9fa7036991a2a63c4a
+FROM ${PYTHON_IMAGE}
+ARG PIP_INDEX_URL=https://pypi.org/simple
+
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copy pyproject.toml first to enable efficient layer caching for dependencies
-COPY pyproject.toml ./
-
-# Create minimal stub packages so setuptools find_packages() succeeds during dependency install layer cache
-RUN mkdir -p apps services agents pipelines tools evaluation && \
-    touch apps/__init__.py services/__init__.py agents/__init__.py pipelines/__init__.py tools/__init__.py evaluation/__init__.py
-
-# Install runtime dependencies including psycopg2-binary for PostgreSQL support
-RUN pip install --no-cache-dir psycopg2-binary && \
-    pip install --no-cache-dir .
+COPY pyproject.toml requirements.lock ./
+RUN python -m pip install --index-url "${PIP_INDEX_URL}" --no-cache-dir -r requirements.lock && \
+    python -m playwright install --with-deps chromium && \
+    chmod -R a+rX ${PLAYWRIGHT_BROWSERS_PATH}
 
 # Copy the actual source code
 COPY . .
 
-# Re-install package code (without reinstalling dependencies) to register modules/entry points
-RUN pip install --no-cache-dir --no-deps .
+RUN python -m pip install --no-cache-dir --no-deps . && \
+    python -m pip check
 
 # Create non-root user and assign permissions
 RUN useradd -m -u 1000 appuser && \
@@ -30,3 +30,5 @@ RUN useradd -m -u 1000 appuser && \
 USER appuser
 
 EXPOSE 8100
+
+CMD ["python", "-m", "uvicorn", "apps.api.main:app", "--host", "0.0.0.0", "--port", "8100"]

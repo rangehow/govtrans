@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """GovTrans secret scanner — self-contained, zero third-party deps.
 
-Scans every git-tracked file (``git ls-files``) for credential patterns and
+Scans every tracked or untracked, non-ignored file (``git ls-files``) for credential patterns and
 exits non-zero on any finding. Run locally and in CI before every commit:
 
     python scripts/scan_secrets.py
@@ -41,7 +41,9 @@ PLACEHOLDER_MARKERS = (
 # Exact matched strings vetted as false positives (never put real keys here).
 ALLOWLIST: set[str] = set()
 
-SKIP_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".ico", ".woff", ".woff2", ".pdf", ".zip"}
+SKIP_SUFFIXES = {
+    ".png", ".jpg", ".jpeg", ".gif", ".ico", ".woff", ".woff2", ".pdf", ".zip", ".whl",
+}
 
 
 def is_placeholder(value: str) -> bool:
@@ -51,7 +53,11 @@ def is_placeholder(value: str) -> bool:
 
 def tracked_files() -> list[Path]:
     out = subprocess.run(
-        ["git", "ls-files"], cwd=REPO_ROOT, capture_output=True, text=True, check=True
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
     ).stdout
     return [REPO_ROOT / line for line in out.splitlines() if line.strip()]
 
@@ -80,12 +86,12 @@ def main() -> int:
     for path in files:
         findings.extend(scan_file(path))
     if findings:
-        print("SECRET SCAN FAILED — possible credentials in tracked files:")
+        print("SECRET SCAN FAILED — possible credentials in repository files:")
         for f in findings:
             print(f"  {f}")
         print("\nRemove the secret, rotate it if it was ever committed, and re-run.")
         return 1
-    print(f"secret scan OK ({len(files)} tracked files checked)")
+    print(f"secret scan OK ({len(files)} repository files checked)")
     return 0
 
 

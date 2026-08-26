@@ -16,7 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from services.corpus.crawler import CrawlError, fetch_document
+from services.corpus.crawler import CrawlError, fetch_scio_document
 from services.corpus.ingest import ingest_document_pair
 
 
@@ -30,15 +30,18 @@ def main() -> int:
     ap.add_argument("--html", action="store_true", help="inputs are HTML")
     ap.add_argument("--document-type", default=None)
     ap.add_argument("--domain", default=None)
-    ap.add_argument("--no-promote", action="store_true", help="skip TM promotion")
+    ap.add_argument(
+        "--promote-to-tm", action="store_true",
+        help="explicitly publish high-scoring pairs into translation memory",
+    )
     args = ap.parse_args()
 
     if args.fetch:
         if not (args.zh_url and args.en_url):
             ap.error("--fetch requires --zh-url and --en-url")
         try:
-            zh_source = fetch_document(args.zh_url)
-            en_source = fetch_document(args.en_url)
+            zh_source = fetch_scio_document(args.zh_url).html
+            en_source = fetch_scio_document(args.en_url).html
         except CrawlError as exc:
             print(f"FAIL: {exc}")
             return 2
@@ -54,7 +57,7 @@ def main() -> int:
         zh_url=args.zh_url, en_url=args.en_url,
         document_type=args.document_type, domain=args.domain,
         match_method="url_heuristic" if args.fetch else "cli",
-        promote=not args.no_promote,
+        promote=args.promote_to_tm,
     )
     print(f"OK pair={result.pair_id}")
     print(f"  paragraph pairs : {result.paragraph_pairs}")

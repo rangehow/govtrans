@@ -1,6 +1,12 @@
 import pytest
 
-from services.retrieval.search import MAX_QUERY_CHARS, LeakGuardError, QueryLeakGuard
+from services.retrieval.search import (
+    MAX_QUERY_CHARS,
+    LeakGuardError,
+    QueryLeakGuard,
+    _authority_for,
+    official_search,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -29,3 +35,24 @@ class TestQueryLeakGuard:
         long_query = "推动高质量发展" * 40  # 280 chars
         result = guard.check(long_query, official=True)
         assert len(result) <= MAX_QUERY_CHARS
+
+
+class TestOfficialTrustBoundary:
+    def test_hostname_matching_rejects_lookalike_urls(self):
+        assert _authority_for("https://english.scio.gov.cn/page") == "official_web"
+        assert _authority_for("https://gov.cn.attacker.example/page") == "general_web"
+        assert _authority_for("https://example.com/?next=gov.cn") == "general_web"
+
+    def test_official_search_discards_backend_leakage(self, monkeypatch):
+        async def fake_search(query, max_results):
+            assert "site:gov.cn" in query
+            return [
+                {"title": "bad", "url": "https://shop.example/item", "snippet": "noise"},
+                {"title": "good", "url": "https://english.www.gov.cn/policy", "snippet": "text"},
+            ]
+
+        monkeypatch.setattr("services.retrieval.search._search", fake_search)
+        hits = __import__("asyncio").run(
+            official_search("高质量发展", guard=QueryLeakGuard("PUBLIC"), max_results=3)
+        )
+        assert [hit["title"] for hit in hits] == ["good"]

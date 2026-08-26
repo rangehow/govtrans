@@ -1,0 +1,32 @@
+{
+  "type": "object",
+  "required": ["segments"],
+  "properties": {
+    "segments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "final_translation", "changes"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "final_translation": {"type": "string", "minLength": 1},
+          "changes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["before", "after", "reason_category"],
+              "properties": {
+                "before": {"type": "string"},
+                "after": {"type": "string"},
+                "reason_category": {
+                  "type": "string",
+                  "enum": ["issue_fix", "fluency", "glossary", "fact"]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -7,22 +7,46 @@ router = APIRouter(prefix="/api/terms", tags=["terminology"])
 
 
 @router.get("")
-def search_terms(q: str = "", top_k: int = 10):
-    return {"terms": term_service.term_search(q, top_k) if q else []}
+def search_terms(
+    q: str = "",
+    top_k: int = 10,
+    source_language: str | None = None,
+    target_language: str | None = None,
+):
+    try:
+        terms = term_service.term_search(
+            q,
+            top_k,
+            source_language=source_language,
+            target_language=target_language,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return {"terms": terms}
 
 
 class CreateTermRequest(BaseModel):
     source_term: str
     preferred_target: str
+    source_language: str = "zh"
+    target_language: str = "en"
     domain: str | None = None
     context: str | None = None
 
 
 @router.post("", status_code=201)
 def create_term(body: CreateTermRequest):
-    term_id = term_service.term_create(
-        body.source_term, body.preferred_target, domain=body.domain, context=body.context
-    )
+    try:
+        term_id = term_service.term_create(
+            body.source_term,
+            body.preferred_target,
+            source_language=body.source_language,
+            target_language=body.target_language,
+            domain=body.domain,
+            context=body.context,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
     return {"id": term_id}
 
 
@@ -35,8 +59,10 @@ class UpdateTermRequest(BaseModel):
 @router.patch("/{term_id}")
 def update_term(term_id: str, body: UpdateTermRequest):
     if not term_service.term_update(
-        term_id, preferred_target=body.preferred_target,
-        domain=body.domain, context=body.context,
+        term_id,
+        preferred_target=body.preferred_target,
+        domain=body.domain,
+        context=body.context,
     ):
         raise HTTPException(404, "term not found")
     return {"status": "updated"}
@@ -57,12 +83,24 @@ def term_history(term_id: str):
     from services.terminology.models import TermAuditLog
 
     with SessionLocal() as session:
-        rows = session.execute(
-            select(TermAuditLog).where(TermAuditLog.term_id == term_id)
-            .order_by(TermAuditLog.id)
-        ).scalars().all()
-        return {"history": [
-            {"action": r.action, "before": r.before, "after": r.after,
-             "actor": r.actor, "created_at": r.created_at.isoformat()}
-            for r in rows
-        ]}
+        rows = (
+            session.execute(
+                select(TermAuditLog)
+                .where(TermAuditLog.term_id == term_id)
+                .order_by(TermAuditLog.id)
+            )
+            .scalars()
+            .all()
+        )
+        return {
+            "history": [
+                {
+                    "action": r.action,
+                    "before": r.before,
+                    "after": r.after,
+                    "actor": r.actor,
+                    "created_at": r.created_at.isoformat(),
+                }
+                for r in rows
+            ]
+        }

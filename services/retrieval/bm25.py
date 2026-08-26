@@ -5,24 +5,63 @@ tokenization, so we use bigrams for zh and word tokens for en — a standard
 cheap trick that works well enough until pgvector semantic ranking lands
 (hybrid = bm25 + metadata + [vector later] + authority rerank).
 """
+
 from __future__ import annotations
 
 import math
-import re
+import unicodedata
 from collections import Counter
 
-_WORD_RE = re.compile(r"[A-Za-z0-9]+")
+_NO_SPACE_SCRIPT_NAMES = (
+    "CJK",
+    "HIRAGANA",
+    "KATAKANA",
+    "THAI",
+    "LAO",
+    "KHMER",
+    "MYANMAR",
+)
+
+
+def _no_space_script(char: str) -> bool:
+    name = unicodedata.name(char, "")
+    return any(marker in name for marker in _NO_SPACE_SCRIPT_NAMES)
 
 
 def tokenize(text: str) -> list[str]:
-    """zh → char bigrams; latin runs → lowercase words; digits kept."""
+    """Tokenize spacing scripts as words and unsegmented scripts as bigrams."""
     tokens: list[str] = []
-    latin = _WORD_RE.findall(text)
-    tokens.extend(t.lower() for t in latin)
-    cjk = re.sub(r"[A-Za-z0-9\s]", "", text)
-    tokens.extend(cjk[i : i + 2] for i in range(len(cjk) - 1))
-    if len(cjk) == 1:
-        tokens.append(cjk)
+    word_run: list[str] = []
+    compact_run: list[str] = []
+
+    def flush_word() -> None:
+        if word_run:
+            tokens.append("".join(word_run).casefold())
+            word_run.clear()
+
+    def flush_compact() -> None:
+        if not compact_run:
+            return
+        value = "".join(compact_run)
+        if len(value) == 1:
+            tokens.append(value)
+        else:
+            tokens.extend(value[index : index + 2] for index in range(len(value) - 1))
+        compact_run.clear()
+
+    for char in text:
+        category = unicodedata.category(char)
+        if not category.startswith(("L", "M", "N")):
+            flush_word()
+            flush_compact()
+        elif _no_space_script(char):
+            flush_word()
+            compact_run.append(char)
+        else:
+            flush_compact()
+            word_run.append(char)
+    flush_word()
+    flush_compact()
     return tokens
 
 
@@ -53,7 +92,11 @@ class BM25:
             if tf == 0:
                 continue
             idf = self._idf(token)
-            total += idf * (tf * (self.k1 + 1)) / (tf + self.k1 * (1 - self.b + self.b * dl / self.avgdl))
+            total += (
+                idf
+                * (tf * (self.k1 + 1))
+                / (tf + self.k1 * (1 - self.b + self.b * dl / self.avgdl))
+            )
         return total
 
     def rank(self, query_text: str, top_k: int) -> list[tuple[int, float]]:

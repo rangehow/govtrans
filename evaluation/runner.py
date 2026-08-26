@@ -4,13 +4,12 @@ run_benchmark(): drives the REAL orchestrator over a gold set and computes
 deterministic metrics. run_baseline(): single direct translator call with
 no retrieval/glossary/QA — the never-deleted comparison point.
 """
+
 from __future__ import annotations
 
 import logging
 import time
 from typing import Any
-
-from sqlalchemy import func
 
 from apps.api.config import Settings
 from apps.api.db import SessionLocal
@@ -18,8 +17,9 @@ from agents.roles import llm
 from evaluation.gold_set import GoldSet, load_gold_set
 from evaluation.metrics import aggregate, chrf, numbers_score, term_score
 from evaluation.models import BenchmarkRun
+from services.languages import prompt_language_variables
 from services.orchestrator.engine import Orchestrator
-from services.orchestrator.models import Issue, ModelUsage, TranslationRun
+from services.orchestrator.models import Issue, TranslationRun
 
 logger = logging.getLogger("govtrans.evaluation")
 
@@ -35,7 +35,10 @@ def _score_item(source: str, reference: str, hypothesis: str, glossary: list[dic
 
 
 async def run_benchmark(
-    orch: Orchestrator, *, gold_set_name: str, name: str | None = None,
+    orch: Orchestrator,
+    *,
+    gold_set_name: str,
+    name: str | None = None,
     corpus_version: str | None = None,
 ) -> str:
     """Full-pipeline benchmark. Returns BenchmarkRun id."""
@@ -44,9 +47,11 @@ async def run_benchmark(
     with SessionLocal() as session:
         bench = BenchmarkRun(
             name=name or f"benchmark-{gold_set_name}",
-            kind="pipeline", gold_set=gold_set_name,
+            kind="pipeline",
+            gold_set=gold_set_name,
             model=settings.translator_model,
-            pipeline_version=settings.pipeline_version, corpus_version=corpus_version,
+            pipeline_version=settings.pipeline_version,
+            corpus_version=corpus_version,
         )
         session.add(bench)
         session.commit()
@@ -56,15 +61,14 @@ async def run_benchmark(
         started = time.monotonic()
         for item in gold.items:
             run_id = orch.create_run(
-                source_text=item.source, confidentiality="PUBLIC",
+                source_text=item.source,
+                confidentiality="PUBLIC",
                 document_type=item.document_type,
             )
             await orch.execute(run_id)
             with SessionLocal() as session:
                 run = session.get(TranslationRun, run_id)
-                hypothesis = " ".join(
-                    s.translation or "" for s in run.segments
-                )
+                hypothesis = " ".join(s.translation or "" for s in run.segments)
                 mqm = {"critical": 0, "major": 0, "minor": 0}
                 for issue in session.query(Issue).filter_by(run_id=run_id).all():
                     if issue.severity in mqm:
@@ -98,8 +102,11 @@ async def run_baseline(settings: Settings, tofu, *, gold_set_name: str) -> str:
     gold = load_gold_set(gold_set_name)
     with SessionLocal() as session:
         bench = BenchmarkRun(
-            name=BASELINE_NAME, kind="baseline", gold_set=gold_set_name,
-            model=settings.translator_model, pipeline_version=settings.pipeline_version,
+            name=BASELINE_NAME,
+            kind="baseline",
+            gold_set=gold_set_name,
+            model=settings.translator_model,
+            pipeline_version=settings.pipeline_version,
         )
         session.add(bench)
         session.commit()
@@ -108,9 +115,17 @@ async def run_baseline(settings: Settings, tofu, *, gold_set_name: str) -> str:
     started = time.monotonic()
     for item in gold.items:
         result: dict[str, Any] = await llm.call_role(
-            tofu=tofu, settings=settings, role="baseline_translator",
-            prompt_name="baseline_translate", variables={"source_text": item.source},
-            schema_name="baseline", model=settings.translator_model, run_id=None,
+            tofu=tofu,
+            settings=settings,
+            role="baseline_translator",
+            prompt_name="baseline_translate",
+            variables={
+                "source_text": item.source,
+                **prompt_language_variables("zh", "en"),
+            },
+            schema_name="baseline",
+            model=settings.translator_model,
+            run_id=None,
         )
         hypothesis = result["translation"]
         # score against the SAME glossary as the pipeline — an empty glossary

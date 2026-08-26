@@ -19,30 +19,44 @@ def seeded_pairs():
             session.query(table).delete()
         session.commit()
     with SessionLocal() as session:
-        zh_doc = CorpusDocument(lang="zh", raw_text="t", structure=[],
-                                content_hash=uuid.uuid4().hex, domain="economy")
-        en_doc = CorpusDocument(lang="en", raw_text="t", structure=[],
-                                content_hash=uuid.uuid4().hex)
-        session.add_all([zh_doc, en_doc])
-        session.flush()
-        pair = DocumentPair(zh_doc_id=zh_doc.id, en_doc_id=en_doc.id)
-        session.add(pair)
-        session.flush()
-        rows = [
-            # 坚持... -> uphold twice, adhere once
-            ("坚持绿色发展理念。", "Uphold the philosophy of green development.", 0.8),
-            ("坚持节约优先。", "Uphold the principle of conservation first.", 0.8),
-            ("坚持人民至上。", "Adhere to the people-first principle.", 0.8),
-            # 加快... -> accelerate twice
-            ("加快构建新发展格局。", "Accelerate the creation of a new development pattern.", 0.8),
-            ("加快推进生态文明。", "Accelerate ecological progress.", 0.8),
-            # low-score pair must be ignored by mining
-            ("坚持低分对。", "whatever translation.", 0.3),
+        evidence_sets = [
+            [
+                ("坚持绿色发展理念。", "Uphold the philosophy of green development.", 0.8),
+                ("坚持人民至上。", "Adhere to the people-first principle.", 0.8),
+                ("加快构建新发展格局。", "Accelerate the creation of a new development pattern.", 0.8),
+            ],
+            [
+                ("坚持节约优先。", "Uphold the principle of conservation first.", 0.8),
+                ("加快推进生态文明。", "Accelerate ecological progress.", 0.8),
+                # low-score pair must be ignored by mining
+                ("坚持低分对。", "whatever translation.", 0.3),
+            ],
         ]
-        for i, (zh, en, score) in enumerate(rows):
-            session.add(AlignedPair(pair_id=pair.id, level="sentence", idx=f"0.{i}",
-                                    zh_text=zh, en_text=en, score=score,
-                                    provenance={"zh_doc": zh_doc.id}))
+        for document_index, rows in enumerate(evidence_sets, 1):
+            zh_doc = CorpusDocument(
+                lang="zh", raw_text=f"zh-{document_index}", structure=[],
+                content_hash=uuid.uuid4().hex, domain="economy",
+                url=f"http://www.scio.gov.cn/zfbps/test-{document_index}.htm",
+            )
+            en_doc = CorpusDocument(
+                lang="en", raw_text=f"en-{document_index}", structure=[],
+                content_hash=uuid.uuid4().hex,
+                url=(
+                    "https://english.scio.gov.cn/whitepapers/"
+                    f"content_{document_index}.htm"
+                ),
+            )
+            session.add_all([zh_doc, en_doc])
+            session.flush()
+            pair = DocumentPair(zh_doc_id=zh_doc.id, en_doc_id=en_doc.id)
+            session.add(pair)
+            session.flush()
+            for i, (zh, en, score) in enumerate(rows):
+                session.add(AlignedPair(
+                    pair_id=pair.id, level="sentence", idx=f"0.{i}",
+                    zh_text=zh, en_text=en, score=score,
+                    provenance={"zh_doc": zh_doc.id},
+                ))
         session.commit()
 
 
@@ -58,9 +72,13 @@ class TestStyleMining:
             assert uphold.source_count == 2
             assert uphold.confidence == pytest.approx(2 / 3, abs=0.01)
             assert uphold.domains == ["economy"]
-            assert uphold.status == "candidate"
+            assert uphold.status == "candidate"  # 2/3 is below auto-publish threshold
             assert len(uphold.examples) == 2
             assert "accelerate" in by_family
+            assert by_family["accelerate"].status == "approved"
+            assert by_family["accelerate"].activation_source == "automatic"
+            assert by_family["accelerate"].activated_at is not None
+        assert stats["auto_activated"] == 1
 
     def test_rerun_updates_not_duplicates(self, seeded_pairs):
         mine_candidate_rules(min_support=2)

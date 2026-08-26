@@ -4,24 +4,26 @@
 
 GovTrans 核心业务逻辑由 `services/orchestrator/stage_graph.py` 定义，采用严谨的 14 个阶段（Stage）确定性状态机。每个阶段职责单一、输入输出明确、支持幂等重试与事件广播。
 
+每个任务在进入状态机前必须解析为 `source_language + target_language`。这两个字段会传入分析、术语抽取、检索、初译、审校、定稿、QA 与导出，`direction` 仅作为兼容性字符串。任何阶段都不得因当前语言对没有专属语料而拒绝翻译。
+
 1. **`parse` (解析阶段)**: 
    - **输入**: 原始文档 (PDF/Word/Text)。
    - **输出**: 结构化段落与元数据。
    - **幂等性**: 相同文件 Hash 幂等跳过。
 2. **`analyze` (分析阶段)**:
    - **输入**: 结构化文本。
-   - **输出**: 文档领域、文体类型、机密等级分类。
+   - **输出**: 文档领域、文体类型、章节大纲、实体台账、指代策略与衔接提示。
 3. **`terminology` (术语匹配阶段)**:
    - **输入**: 文本与领域标签。
    - **输出**: `document_glossaries`（包含术语对、origin 来源与 exception 排除项）。
 4. **`retrieve` (检索增强阶段)**:
    - **输入**: 句段与术语。
-   - **输出**: TM 记忆库匹配项、官方白名单网页检索证据。
+   - **输出**: 高置信官方语料句对、人工核验记忆与官方白名单网页证据；句对均为软参考。
 5. **`plan` (翻译规划阶段)**:
    - **输入**: 全文分析与检索证据。
    - **输出**: 翻译策略、特殊数字/名称处理大纲。
 6. **`translate` (翻译执行阶段)**:
-   - **输入**: 段落、术语表、TM、翻译计划。
+   - **输入**: 连续段落批次、全文实体台账、术语表、官方软参考、前文已接受译文、翻译计划与文风 Skill。
    - **输出**: `segments.versions['ai_draft']`。
 7. **`deterministic_qa` (确定性 QA 阶段)**:
    - **输入**: AI 初稿、数字/专名规范。
@@ -52,7 +54,7 @@ GovTrans 核心业务逻辑由 `services/orchestrator/stage_graph.py` 定义，�
 
 ## 2. DocumentGlossary 与 term_exception 机制
 
-在 `terminology` 阶段，系统自动生成 `document_glossaries`（关联 `run_id` 与 `version`）。
+在 `terminology` 阶段，系统自动生成 `document_glossaries`（关联 `run_id` 与 `version`）。强制译法只来自可编辑术语库与本次任务人工术语，任务术语优先；模型提议仅供参考，Style Skill 不提供固定译法。
 - **`entries`**: 记录术语的原文、推荐译文、官方来源及置信度。
 - **`term_exception` (术语异常/例外)**: 允许在特定上下文中对标准术语库进行安全覆盖或豁免，避免机械套用造成的语境不通，所有例外均记录审计日志。
 
@@ -74,9 +76,40 @@ Finalizer 阶段（Stage 12）负责将评审意见转化为高质量译文修�
 
 ---
 
-## 5. Release Gate 循环与 WAITING_HUMAN_REVIEW 状态机
+## 5. 全自动 Release Gate 闭环
 
-系统的运行状态机（`CREATED` -> `PARSING` -> `ANALYZING` -> `RESEARCHING` -> `TRANSLATING` -> `REVIEWING` -> `FINALIZING` -> `QA` -> `COMPLETED` / `FAILED` / `CANCELLED` / `WAITING_HUMAN_REVIEW`）通过 Release Gate 进行流转控制：
-- **Gate 检查**: 在 `final_qa` 阶段，若检测到 `critical > 0` 的缺陷，流水线自动回退（Loop）至 `finalize` 阶段重新修正。
-- **循环上限 (Max Finalize Loops)**: 回退循环次数设有上限 (`max_finalize_loops = 2`)。
-- **人工干预熔断**: 若连续循环 2 次仍无法消除 critical 缺陷，流水线自动熔断并转入 `WAITING_HUMAN_REVIEW` 状态，暂停自动化流转，等待人类专员介入人工审核与决策。
+运行状态机为 `CREATED` → `PARSING` → `ANALYZING` → `RESEARCHING` →
+`TRANSLATING` → `REVIEWING` → `FINALIZING` → `QA` → `COMPLETED` /
+`QUALITY_GATE_FAILED` / `FAILED` / `CANCELLED`。
+
+`WAITING_RESOURCES` 是任一活动阶段的可恢复等待态：ToFu 满载或宿主资源保护拒绝
+准入时，当前阶段与全部产物保持在数据库中，系统按配置自动重试。默认连续 3 次仍无法
+准入就明确失败，不会无限显示“文档分析”。启用同 Provider 直连降级时，ToFu 明确返回
+过载或已受理任务超过限定等待时间后，可走同一模型配置继续处理；超时任务会先请求中止。
+它不是人工审批态；API 重启后会恢复活动任务。
+
+- **发布检查**：`final_qa` 同时执行确定性校验和独立发布审校。任何
+  critical 或 major 问题都会阻断发布。
+- **自动增强修订**：有阻断问题时自动回到 `finalize`；第二轮起使用审校模型定向修复，
+  然后重新执行全量发布检查。
+- **循环上限**：默认 `MAX_FINALIZE_LOOPS=3`，可在 1–8 之间配置。
+- **有界暂停与续跑**：达到上限仍存在阻断问题时，任务进入 `QUALITY_GATE_FAILED`；
+  已有源文、译文、证据和问题全部保留，不允许导出未通过门禁的译文。用户可调用
+  `POST /api/runs/{id}/continue` 再启动一组有界自动修订，累计轮次和续跑次数继续留痕。
+- **自动质检分**：以 100 为起点，对当前未解决的 critical / major / minor 分别每项扣
+  30 / 8 / 2 分。该数字用于快速定位检查负担，不等同于人工主观质量分；发布规则仍是
+  critical 与 major 必须清零，minor 仅作为不阻断交付的润色建议保留。
+
+`WAITING_HUMAN_REVIEW` 仅为兼容 0.1 版本已有历史记录而保留，新任务不会进入该状态。
+
+## 6. 并发、幂等与恢复
+
+- 段落只是默认持久化与界面展示单位。解析会先合并 PDF/编辑器造成的行内软换行，保留空行、完整句末、显式标题和列表边界；只有超过 `SEGMENT_MAX_CHARS`（默认 4,000）的长段落才继续分割。
+- 短文在一次模型调用中完成；长文按 `TRANSLATION_BATCH_MAX_CHARS`（默认 12,000）组成连续批次。“全文连贯”按顺序运行，后批次可见前文译法；“均衡提速”最多并发 3 个批次并共享全文实体台账。
+- 语义、风格与最终审校也读取连续双语批次；全篇一致性审校额外检查实体、缩写、指代、主语、衔接、情态、时态及列表平行结构。
+- 每次模型调用使用“任务 + 角色 + 完整请求指纹 + 重试次数”作为幂等键，
+  因此并发句段不会互相复用返回值。
+- 每次模型调用只向 ToFu 提交一次异步任务，随后轮询该任务句柄，避免读取超时造成重复执行。
+- API 重启时会扫描活动任务并从 `current_stage` 恢复；已完成句段和阶段产物会幂等跳过。
+- ToFu 准入等待与网络故障重试使用独立预算；准入预算耗尽后转为持久化资源等待，
+  默认 15 秒后自动重试，避免短暂容量或内存压力将整份文档置为失败。

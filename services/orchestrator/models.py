@@ -5,12 +5,13 @@ PostgreSQL prod). JSON columns hold structured payloads whose schema is
 defined by pydantic models in services/orchestrator/events.py and
 agents/schemas/.
 """
+
 from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from apps.api.db import Base
@@ -33,13 +34,27 @@ class RunStatus:
     REVIEWING = "REVIEWING"
     FINALIZING = "FINALIZING"
     QA = "QA"
+    WAITING_RESOURCES = "WAITING_RESOURCES"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
+    QUALITY_GATE_FAILED = "QUALITY_GATE_FAILED"
     CANCELLED = "CANCELLED"
+    # Kept only so historic rows created by pre-0.2 releases remain readable.
+    # New runs never enter a human-approval state.
     WAITING_HUMAN_REVIEW = "WAITING_HUMAN_REVIEW"
 
-    ACTIVE = {CREATED, PARSING, ANALYZING, RESEARCHING, TRANSLATING, REVIEWING, FINALIZING, QA}
-    TERMINAL = {COMPLETED, FAILED, CANCELLED, WAITING_HUMAN_REVIEW}
+    ACTIVE = {
+        CREATED,
+        PARSING,
+        ANALYZING,
+        RESEARCHING,
+        TRANSLATING,
+        REVIEWING,
+        FINALIZING,
+        QA,
+        WAITING_RESOURCES,
+    }
+    TERMINAL = {COMPLETED, FAILED, QUALITY_GATE_FAILED, CANCELLED, WAITING_HUMAN_REVIEW}
 
 
 class Confidentiality:
@@ -50,13 +65,24 @@ class Confidentiality:
 
 class TranslationRun(Base):
     __tablename__ = "translation_runs"
+    __table_args__ = (
+        Index("ix_translation_runs_language_pair", "source_language", "target_language"),
+    )
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
     status: Mapped[str] = mapped_column(String(32), default=RunStatus.CREATED, index=True)
-    direction: Mapped[str] = mapped_column(String(8), default="zh-en")
+    direction: Mapped[str] = mapped_column(String(35), default="zh-en")
+    source_language: Mapped[str] = mapped_column(String(16), default="zh")
+    target_language: Mapped[str] = mapped_column(String(16), default="en")
     confidentiality: Mapped[str] = mapped_column(String(16), default=Confidentiality.PUBLIC)
     document_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
     source_text: Mapped[str] = mapped_column(Text)
+    # Style, terminology and inference strategy are deliberately separate:
+    # style_skills controls register; manual_terms controls lexical choices;
+    # translation_mode controls document batching/cohesion.
+    style_skills: Mapped[list] = mapped_column(JSON, default=list)
+    manual_terms: Mapped[list] = mapped_column(JSON, default=list)
+    translation_mode: Mapped[str] = mapped_column(String(16), default="coherent")
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     current_stage: Mapped[str | None] = mapped_column(String(32), nullable=True)
     progress: Mapped[float] = mapped_column(Float, default=0.0)
@@ -66,14 +92,12 @@ class TranslationRun(Base):
     pipeline_version: Mapped[str] = mapped_column(String(32))
     version_pins: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(default=_utcnow)
-    updated_at: Mapped[datetime] = mapped_column(default=_utcnow, onupdate=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=_utcnow, onupdate=_utcnow, index=True)
 
     segments: Mapped[list["Segment"]] = relationship(
         back_populates="run", cascade="all, delete-orphan", order_by="Segment.idx"
     )
-    issues: Mapped[list["Issue"]] = relationship(
-        back_populates="run", cascade="all, delete-orphan"
-    )
+    issues: Mapped[list["Issue"]] = relationship(back_populates="run", cascade="all, delete-orphan")
 
 
 class Segment(Base):
@@ -96,6 +120,7 @@ class RunEvent(Base):
     """Persisted SSE event. seq is per-run monotonic for cursor resume."""
 
     __tablename__ = "run_events"
+    __table_args__ = (UniqueConstraint("run_id", "seq", name="uq_run_events_run_seq"),)
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
     run_id: Mapped[str] = mapped_column(ForeignKey("translation_runs.id"), index=True)

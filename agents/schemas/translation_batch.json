@@ -1,0 +1,18 @@
+{
+  "type": "object",
+  "required": ["segments", "uncertainties"],
+  "properties": {
+    "segments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "translation"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "translation": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "uncertainties": {"type": "array", "items": {"type": "string"}}
+  }
+}

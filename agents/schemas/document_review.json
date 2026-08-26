@@ -1,0 +1,22 @@
+{
+  "type": "object",
+  "required": ["issues"],
+  "properties": {
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["segment_id", "severity", "category", "message"],
+        "properties": {
+          "segment_id": {"type": "string", "minLength": 1},
+          "severity": {"type": "string", "enum": ["critical", "major", "minor"]},
+          "category": {"type": "string"},
+          "source_span": {"type": "string"},
+          "target_span": {"type": "string"},
+          "message": {"type": "string", "minLength": 1},
+          "suggested_fix": {"type": "string"}
+        }
+      }
+    }
+  }
+}

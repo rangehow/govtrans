@@ -14,7 +14,7 @@ from dataclasses import dataclass
 
 _NUMBER_RE = re.compile(r"\d+(?:,\d{3})*(?:\.\d+)?%?")
 
-EXPECTED_LEN_RATIO = 1.9   # en_chars / zh_chars for parallel gov prose
+EXPECTED_LEN_RATIO = 1.9   # fallback only; document ingestion estimates this per pair
 LEN_SIGMA = 0.45
 SKIP_PENALTY = 0.35
 MERGE_BONUS = 0.05
@@ -31,12 +31,18 @@ def _numbers(text: str) -> list[str]:
     return sorted(t.replace(",", "").rstrip("%") for t in _NUMBER_RE.findall(text))
 
 
-def score_pair(zh: str, en: str) -> float:
+def score_pair(
+    zh: str,
+    en: str,
+    *,
+    expected_len_ratio: float = EXPECTED_LEN_RATIO,
+) -> float:
     """Bilingual similarity in [0, 1]."""
     if not zh or not en:
         return 0.0
     ratio = len(en) / max(len(zh), 1)
-    len_score = math.exp(-((math.log(max(ratio, 1e-6)) - math.log(EXPECTED_LEN_RATIO)) ** 2)
+    expected = max(expected_len_ratio, 1e-6)
+    len_score = math.exp(-((math.log(max(ratio, 1e-6)) - math.log(expected)) ** 2)
                          / (2 * LEN_SIGMA**2))
     zh_nums, en_nums = _numbers(zh), _numbers(en)
     if zh_nums:
@@ -52,13 +58,26 @@ def align_sequences(
     *,
     allow_merges: bool,
     min_score: float = 0.15,
+    expected_len_ratio: float = EXPECTED_LEN_RATIO,
 ) -> list[Alignment]:
     """DP global alignment. Returns 1-1 / 1-2 / 2-1 alignments whose pair
     score clears min_score; skipped items are dropped (reported by caller)."""
     n, m = len(zh_items), len(en_items)
     NEG = -1e9
     # moves: (take_zh, take_en, bonus)
-    moves = [(1, 1, 0.0)] + ([(1, 2, MERGE_BONUS), (2, 1, MERGE_BONUS)] if allow_merges else [])
+    moves = [(1, 1, 0.0)]
+    if allow_merges:
+        # Official Chinese and English editions do not always share paragraph
+        # boundaries. Support the common 1:2/2:1 cases as well as occasional
+        # 1:3/3:1 and 2:2 layouts instead of forcing a plausible-looking but
+        # semantically shifted 1:1 match.
+        moves.extend([
+            (1, 2, MERGE_BONUS),
+            (2, 1, MERGE_BONUS),
+            (1, 3, MERGE_BONUS * 2),
+            (3, 1, MERGE_BONUS * 2),
+            (2, 2, MERGE_BONUS),
+        ])
     dp = [[(NEG, None)] * (m + 1) for _ in range(n + 1)]
     dp[0][0] = (0.0, None)
     for i in range(n + 1):
@@ -78,7 +97,11 @@ def align_sequences(
                 if i >= dz and j >= de:
                     zh = "".join(zh_items[i - dz:i])
                     en = " ".join(en_items[j - de:j])
-                    cand = dp[i - dz][j - de][0] + score_pair(zh, en) + bonus
+                    cand = (
+                        dp[i - dz][j - de][0]
+                        + score_pair(zh, en, expected_len_ratio=expected_len_ratio)
+                        + bonus
+                    )
                     if cand > best[0]:
                         best = (cand, (i - dz, j - de, (dz, de)))
             dp[i][j] = best
@@ -93,7 +116,7 @@ def align_sequences(
             dz, de = move
             zh = "".join(zh_items[pi:i]) if dz > 1 else zh_items[pi]
             en = " ".join(en_items[pj:j]) if de > 1 else en_items[pj]
-            score = score_pair(zh, en)
+            score = score_pair(zh, en, expected_len_ratio=expected_len_ratio)
             if score >= min_score:
                 alignments.append(Alignment(list(range(pi, i)), list(range(pj, j)), score))
         i, j = pi, pj

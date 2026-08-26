@@ -1,11 +1,27 @@
 {
   "type": "object",
-  "required": ["document_type", "domain", "summary", "key_points", "tone"],
+  "required": ["document_type", "domain", "summary", "key_points", "tone", "section_outline", "entities", "cohesion_notes"],
   "properties": {
     "document_type": {"type": "string"},
     "domain": {"type": "string"},
     "summary": {"type": "string"},
     "key_points": {"type": "array", "items": {"type": "string"}},
-    "tone": {"type": "string"}
+    "tone": {"type": "string"},
+    "section_outline": {"type": "array", "items": {"type": "string"}},
+    "entities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["source", "canonical_target", "short_form", "type", "reference_policy"],
+        "properties": {
+          "source": {"type": "string"},
+          "canonical_target": {"type": "string"},
+          "short_form": {"type": "string"},
+          "type": {"type": "string"},
+          "reference_policy": {"type": "string"}
+        }
+      }
+    },
+    "cohesion_notes": {"type": "array", "items": {"type": "string"}}
   }
 }

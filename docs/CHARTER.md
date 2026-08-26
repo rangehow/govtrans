@@ -19,7 +19,7 @@
 GovTrans 在架构设计上做出了以下不可动摇的顶层技术决策：
 
 - **AD-01: ToFu 独立 Runtime 隔离**
-  - *决策*: ToFu 作为独立运行时（默认端口 `:15000`），通过标准 API 与核心业务系统解耦，绝不直接侵入修改核心业务代码。
+  - *决策*: Tofu Agent 作为独立 sidecar（默认端口 `:15001`），通过带 Token 的标准 API 与核心业务系统解耦；GovTrans 仅随包分发经校验的运行时 wheel，不侵入修改其执行内核。
 - **AD-02: 模型全环境变量配置**
   - *决策*: 所有大模型角色与服务（`TRANSLATOR_MODEL`, `REVIEW_MODEL`, `FAST_MODEL`, `EMBEDDING_MODEL`, `RERANK_MODEL` 及 `DASHSCOPE_BASE_URL`）必须通过环境变量动态配置，严禁硬编码。
 - **AD-03: Skill / Corpus / Glossary 三分离**

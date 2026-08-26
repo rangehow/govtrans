@@ -22,7 +22,17 @@ async def main() -> int:
     if not settings.dashscope_api_key or not settings.dashscope_api_key.get_secret_value():
         print("FAIL: DASHSCOPE_API_KEY is not set. Copy .env.example to .env and fill it.")
         return 1
-    tofu = TofuClient(settings.tofu_base_url, timeout=settings.tofu_timeout_seconds)
+    tofu = TofuClient(
+        settings.tofu_base_url,
+        api_key=(
+            settings.tofu_api_key.get_secret_value()
+            if settings.tofu_api_key
+            else None
+        ),
+        timeout=settings.tofu_timeout_seconds,
+        max_retries=settings.tofu_max_retries,
+        max_concurrency=settings.tofu_max_concurrency,
+    )
     try:
         result = await tofu.run_agent(
             messages=[{"role": "user", "content": "Reply with the single word: OK"}],

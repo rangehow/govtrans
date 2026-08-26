@@ -1,5 +1,8 @@
-"""Style distillation models (§19). StyleRules are mined offline from the
-parallel corpus, reviewed by humans, and only then versioned into skills.
+"""Style distillation models (§19).
+
+High-confidence rules supported by multiple official document pairs become
+active automatically. Optional governance can exclude or exceptionally
+activate weaker observations; translation never waits for that workflow.
 Skill = rules; Corpus = evidence; Glossary = terminology (AD-03).
 """
 from __future__ import annotations
@@ -26,9 +29,14 @@ class StyleRule(Base):
     en_rendering: Mapped[str] = mapped_column(String(512))
     examples: Mapped[list] = mapped_column(JSON, default=list)        # [{zh, en, pair_id}]
     counterexamples: Mapped[list] = mapped_column(JSON, default=list) # pairs where it failed
-    source_count: Mapped[int] = mapped_column(default=0)
+    source_count: Mapped[int] = mapped_column(default=0)  # distinct document pairs
     domains: Mapped[list] = mapped_column(JSON, default=list)
     confidence: Mapped[float] = mapped_column(Float, default=0.0)
     status: Mapped[str] = mapped_column(String(16), default="candidate")  # candidate|approved|rejected
+    # ``approved`` is the legacy storage value for an active runtime rule.
+    # The source makes automatic activation visibly distinct from a rare
+    # human exception without introducing an approval queue.
+    activation_source: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    activated_at: Mapped[datetime | None] = mapped_column(nullable=True)
     version: Mapped[str] = mapped_column(String(32), default="0.1.0")
     created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(timezone.utc))

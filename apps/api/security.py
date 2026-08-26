@@ -56,6 +56,8 @@ def install_log_redaction(settings: Settings) -> SecretRedactionFilter:
     secrets = []
     if settings.dashscope_api_key:
         secrets.append(settings.dashscope_api_key.get_secret_value())
+    if settings.tofu_api_key:
+        secrets.append(settings.tofu_api_key.get_secret_value())
     if settings.s3_secret_key:
         secrets.append(settings.s3_secret_key.get_secret_value())
     filt = SecretRedactionFilter(secrets)

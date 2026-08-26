@@ -10,8 +10,8 @@ export default function CorpusAdmin() {
   const [error, setError] = useState<string | null>(null)
   
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [editZh, setEditZh] = useState(''), [editEn] = useState('')
-  const [editEnVal, setEditEnVal] = useState('') // renamed to avoid shadowing or collision
+  const [editZh, setEditZh] = useState('')
+  const [editEnVal, setEditEnVal] = useState('')
 
   useEffect(() => {
     const initData = async () => {
@@ -39,11 +39,26 @@ export default function CorpusAdmin() {
 
   const docMap = new Map(docs.map(d => [d.id, d]))
 
-  const handleStatusUpdate = async (id: string, status: 'approved' | 'rejected', zh?: string, en?: string) => {
+  const handleStatusUpdate = async (id: string, status: 'auto' | 'approved' | 'rejected', zh?: string, en?: string) => {
     setError(null)
     try {
       const res = await updateAlignment(id, { status, zh_text: zh, en_text: en })
-      setAlignments(prev => prev.map(a => a.id === id ? { ...a, status: res.status, zh_text: zh ?? a.zh_text, en_text: en ?? a.en_text } : a))
+      setAlignments(prev => prev.map(a => {
+        if (a.id !== id) return a
+        const referenceTier = status === 'rejected'
+          ? 'excluded'
+          : status === 'approved'
+            ? 'human_verified'
+            : a.score >= 0.85 ? 'automatic' : 'archive_only'
+        return {
+          ...a,
+          status: res.status,
+          reference_tier: referenceTier,
+          tm_entry_id: res.tm_entry_id,
+          zh_text: zh ?? a.zh_text,
+          en_text: en ?? a.en_text,
+        }
+      }))
       setEditingId(null)
     } catch (err) { setError(err instanceof Error ? err.message : '更新句对状态失败') }
   }
@@ -56,6 +71,10 @@ export default function CorpusAdmin() {
 
   return (
     <div className="corpus-admin-layout">
+      <div className="corpus-purpose-note">
+        <strong>语料是可追溯的官方参考，不是第二个术语库，也没有发布步骤。</strong>
+        对齐分 ≥ 85% 的官方句对自动成为翻译软参考；低置信句对只存档。人只在发现错误、需要排除，或必须例外启用低置信句对时介入，翻译永不等待人工审批。
+      </div>
       {error && <div role="alert" className="error-banner">{error}</div>}
       {loading ? <div className="loading-state">载入中...</div> : (
         <div className="corpus-columns">
@@ -86,19 +105,24 @@ export default function CorpusAdmin() {
 
           {/* 右侧 Alignments 列表 */}
           <div className="corpus-right-col">
-            <h3>对齐句段校对</h3>
+            <h3>官方参考状态</h3>
             {loadingAlign ? <div className="loading-state">正在加载对齐句段...</div> : alignments.length === 0 ? <div className="panel-empty">请选择左侧关联对以展示句对</div> : (
               <div className="alignment-list-container">
                 {alignments.map(a => {
                   const isEditing = editingId === a.id
-                  const isApproved = a.status === 'approved'
-                  const isRejected = a.status === 'rejected'
+                  const isApproved = a.reference_tier === 'human_verified'
+                  const isRejected = a.reference_tier === 'excluded'
+                  const statusLabel = a.reference_tier === 'automatic'
+                    ? '自动参考'
+                    : a.reference_tier === 'human_verified'
+                      ? '人工核验'
+                      : a.reference_tier === 'archive_only' ? '仅存档' : '已排除'
                   return (
-                    <div key={a.id} className={`alignment-item-row status-${a.status}`}>
+                    <div key={a.id} className={`alignment-item-row status-${a.reference_tier}`}>
                       <div className="align-meta-tag">
                         <span className="idx-tag">#{a.idx}</span>
                         <span className={`score-badge ${a.score > 0.8 ? 'high' : 'low'}`}>Score: {a.score.toFixed(2)}</span>
-                        {a.status && <span className={`status-tag status-${a.status}`}>{a.status === 'approved' ? '已批准' : a.status === 'rejected' ? '已拒绝' : '待审核'}</span>}
+                        <span className={`status-tag status-${a.reference_tier}`}>{statusLabel}</span>
                       </div>
 
                       {isEditing ? (
@@ -106,7 +130,7 @@ export default function CorpusAdmin() {
                           <textarea className="align-edit-textarea" value={editZh} onChange={e => setEditZh(e.target.value)} />
                           <textarea className="align-edit-textarea" value={editEnVal} onChange={e => setEditEnVal(e.target.value)} />
                           <div className="align-edit-actions">
-                            <button onClick={() => handleStatusUpdate(a.id, 'approved', editZh, editEnVal)} className="btn-save primary">提交修正并批准</button>
+                            <button onClick={() => handleStatusUpdate(a.id, 'approved', editZh, editEnVal)} className="btn-save primary">保存修正并标记人工核验</button>
                             <button onClick={() => setEditingId(null)} className="btn-cancel">取消</button>
                           </div>
                         </div>
@@ -118,11 +142,24 @@ export default function CorpusAdmin() {
                       )}
 
                       {!isEditing && (
-                        <div className="align-row-actions">
-                          <button onClick={() => handleStatusUpdate(a.id, 'approved')} disabled={isApproved} className="action-btn approve-btn">批准</button>
-                          <button onClick={() => handleStatusUpdate(a.id, 'rejected')} disabled={isRejected} className="action-btn reject-btn">拒绝</button>
-                          <button onClick={() => startEdit(a)} className="action-btn edit-btn">修正</button>
-                        </div>
+                        <details className="alignment-governance">
+                          <summary>发现问题或需要例外处理</summary>
+                          <div className="align-row-actions">
+                            {a.reference_tier === 'archive_only' && (
+                              <button onClick={() => handleStatusUpdate(a.id, 'approved')} className="action-btn approve-btn">例外启用为高可信参考</button>
+                            )}
+                            {a.reference_tier === 'automatic' && (
+                              <button onClick={() => handleStatusUpdate(a.id, 'approved')} className="action-btn approve-btn">标记已人工核验</button>
+                            )}
+                            {(isApproved || isRejected) && (
+                              <button onClick={() => handleStatusUpdate(a.id, 'auto')} className="action-btn">恢复自动判断</button>
+                            )}
+                            {!isRejected && (
+                              <button onClick={() => handleStatusUpdate(a.id, 'rejected')} className="action-btn reject-btn">排除错误句对</button>
+                            )}
+                            <button onClick={() => startEdit(a)} className="action-btn edit-btn">修正对齐或译文</button>
+                          </div>
+                        </details>
                       )}
                     </div>
                   )

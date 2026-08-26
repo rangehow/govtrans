@@ -2,7 +2,7 @@
   "type": "object",
   "required": ["translation", "terms_used", "evidence_refs", "uncertainties"],
   "properties": {
-    "translation": {"type": "string"},
+    "translation": {"type": "string", "minLength": 1},
     "terms_used": {"type": "array", "items": {"type": "string"}},
     "evidence_refs": {"type": "array"},
     "uncertainties": {"type": "array", "items": {"type": "string"}}

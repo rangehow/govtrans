@@ -4,12 +4,13 @@ terms / term_variants / term_evidence are separate tables on purpose:
 evidence is what makes a term official, and variants have their own status
 lifecycle (preferred -> alternative -> deprecated).
 """
+
 from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from apps.api.db import Base
@@ -21,10 +22,13 @@ def _uuid() -> str:
 
 class Term(Base):
     __tablename__ = "terms"
+    __table_args__ = (Index("ix_terms_language_pair", "source_language", "target_language"),)
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
     source_term: Mapped[str] = mapped_column(String(256), index=True)
     preferred_target: Mapped[str] = mapped_column(String(512))
+    source_language: Mapped[str] = mapped_column(String(16), default="zh")
+    target_language: Mapped[str] = mapped_column(String(16), default="en")
     domain: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     context: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(16), default="preferred")  # preferred|deprecated
@@ -52,7 +56,9 @@ class TermEvidence(Base):
     term_id: Mapped[str] = mapped_column(ForeignKey("terms.id"), index=True)
     source_document: Mapped[str | None] = mapped_column(String(512), nullable=True)
     url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
-    authority: Mapped[str] = mapped_column(String(32), default="official")  # official|trusted|general
+    authority: Mapped[str] = mapped_column(
+        String(32), default="official"
+    )  # official|trusted|general
     source_sentence: Mapped[str | None] = mapped_column(Text, nullable=True)
     target_sentence: Mapped[str | None] = mapped_column(Text, nullable=True)
 

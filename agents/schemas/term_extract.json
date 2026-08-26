@@ -6,10 +6,11 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["source", "proposed_target", "needs_official_check"],
+        "required": ["source", "proposed_target", "proper_name", "needs_official_check"],
         "properties": {
           "source": {"type": "string"},
           "proposed_target": {"type": "string"},
+          "proper_name": {"type": "boolean"},
           "needs_official_check": {"type": "boolean"}
         }
       }

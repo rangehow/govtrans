@@ -1,95 +1,82 @@
-version: '3.8'
+name: govtrans
 
 services:
   db:
     image: pgvector/pgvector:pg16
-    container_name: govtrans-db
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-govtrans}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-govtrans}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run ./scripts/deploy.sh init first}
       POSTGRES_DB: ${POSTGRES_DB:-govtrans}
     volumes:
       - pgdata:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-govtrans} -d ${POSTGRES_DB:-govtrans}"]
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 20
+      start_period: 10s
     restart: unless-stopped
 
-  redis:
-    image: redis:7-alpine
-    container_name: govtrans-redis
-    ports:
-      - "6379:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-
-  minio:
-    image: minio/minio
-    container_name: govtrans-minio
-    command: server /data --console-address ":9001"
+  tofu:
+    build:
+      context: .
+      dockerfile: docker/tofu-agent.Dockerfile
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
+    init: true
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-govtrans}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change-me-in-.env}
-    volumes:
-      - miniodata:/data
+      TOFU_AGENT_HOST: 0.0.0.0
+      TOFU_AGENT_PORT: 15001
+      TOFU_AGENT_TOKEN: ${TOFU_API_KEY:?Run ./scripts/deploy.sh init first}
+      TOFU_AGENT_SETUP_ENABLED: "0"
+      TOFU_AGENT_LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      TOFU_AGENT_MAX_INFLIGHT: ${TOFU_MAX_CONCURRENCY:-6}
+      TOFU_AGENT_PROVIDER_BASE_URL: ${DASHSCOPE_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      TOFU_AGENT_PROVIDER_API_KEY: ${DASHSCOPE_API_KEY:?Set DASHSCOPE_API_KEY in .env}
+      TOFU_AGENT_PROVIDER_MODEL: ${FAST_MODEL:-qwen-turbo}
     ports:
-      - "9000:9000"
-      - "9001:9001"
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:9000/minio/health/live || exit 1"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+      - "127.0.0.1:${TOFU_PORT:-15001}:15001"
+    mem_limit: ${TOFU_MEMORY_LIMIT:-4g}
+    pids_limit: ${TOFU_PIDS_LIMIT:-512}
+    stop_grace_period: 45s
     restart: unless-stopped
-
-  minio-init:
-    image: minio/mc
-    container_name: govtrans-minio-init
-    depends_on:
-      minio:
-        condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-      mc alias set myminio http://minio:9000 ${MINIO_ROOT_USER:-govtrans} ${MINIO_ROOT_PASSWORD:-change-me-in-.env} &&
-      mc mb --ignore-existing myminio/${S3_BUCKET:-govtrans-corpus} &&
-      echo 'MinIO bucket initialization completed.'
-      "
 
   api:
     build:
       context: .
       dockerfile: docker/api.Dockerfile
-    container_name: govtrans-api
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-govtrans}:${POSTGRES_PASSWORD:-govtrans}@db:5432/${POSTGRES_DB:-govtrans}
-      REDIS_URL: redis://redis:6379/0
-      S3_ENDPOINT: http://minio:9000
-      TOFU_BASE_URL: http://tofu:15000
+      GOVTRANS_ENV: production
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-govtrans}:${POSTGRES_PASSWORD:?Run ./scripts/deploy.sh init first}@db:5432/${POSTGRES_DB:-govtrans}
+      TOFU_BASE_URL: http://tofu:15001
+      TOFU_API_KEY: ${TOFU_API_KEY:?Run ./scripts/deploy.sh init first}
     depends_on:
       db:
         condition: service_healthy
-      redis:
+      tofu:
         condition: service_healthy
-      minio:
-        condition: service_healthy
+    expose:
+      - "8100"
     ports:
-      - "8100:8100"
-    command: sh -c "alembic upgrade head && uvicorn apps.api.main:app --host 0.0.0.0 --port 8100"
+      - "127.0.0.1:${API_PORT:-8100}:8100"
+    command:
+      - sh
+      - -c
+      - python -m alembic upgrade head && exec python -m uvicorn apps.api.main:app --host 0.0.0.0 --port 8100
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8100/healthz || exit 1"]
+      test: ["CMD", "curl", "-fsS", "http://localhost:8100/healthz"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 12
+      start_period: 30s
+    init: true
+    stop_grace_period: 45s
     restart: unless-stopped
 
   web:
@@ -98,26 +85,18 @@ services:
       dockerfile: docker/web.Dockerfile
       args:
         NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org}
-    container_name: govtrans-web
     ports:
-      - "8080:80"
+      - "${GOVTRANS_BIND_ADDRESS:-0.0.0.0}:${GOVTRANS_PORT:-8080}:80"
     depends_on:
       api:
         condition: service_healthy
-    restart: unless-stopped
-
-  tofu:
-    profiles:
-      - tofu
-    build:
-      # ToFu source code is located outside the GovTrans repository.
-      # You can also run it directly on the host machine using `python server.py` at port 15000.
-      context: ${TOFU_CONTEXT:-../chatui}
-    container_name: govtrans-tofu
-    ports:
-      - "15000:15000"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
     restart: unless-stopped
 
 volumes:
   pgdata:
-  miniodata:
