@@ -29,6 +29,17 @@
 
 ## Entries
 
+### 2026-09-19（续）— 数字校验的泛化：封闭集合 + 安全失败，而非枚举单位
+- **Change:** ①`_EN_MAGNITUDE_RE` 支持英文拼写数字（one billion / two hundred million / eleven billion），新增 `_en_number_value` 解析器；换算等价与换算错误判定统一改为"解析短语数值×量级"比较。②缺数字 finding 的 suggested_fix 从「补译数字 X」（诱导照抄）改为「按数值核对 X 是否遗漏……禁止照抄源数字」。③新增 5 个测试（拼写数字等价、拼写数字换算错误、修复指令措辞），192 单测全绿。
+- **Why:** 评审提问"规则无法涵盖所有单位"。答案的结构：1:1 翻译的单位（公里→km、吨→tonnes）数字不变、天然不误报，无需覆盖；会改变数字的惯例是封闭小集合=中文量级（万/亿/万亿，已覆盖）+英文拼写数字（本次补齐）；其余未知情况靠安全失败兜底——规则不认识时修复指令是"按值核对"而非"照抄数字"，最多漏报、绝不误改。
+- **Lesson:** 确定性 QA 的设计原则应匹配其执行后果：finding 会被 finalizer 强制执行，所以修复指令必须是"验证语义"而不是"机械替换"；封闭集合做精确拦截，开放长尾交给语义层（review 提示词已要求按值判断）。
+
+### 2026-09-19 — 根源修复：英文部反馈的数字误改与大小写误改（误报→误改链路）
+- **Change:** ①`validate_numbers` 增加中英数量级换算感知：万/亿/万亿 表达式与值相等的英文量级（billion/million/thousand/trillion）或展开整数（1.2万→12,000）先按序 consume 再做多重集比对；同数字不同量级（11亿→11 billion）新判为 critical「数字换算错误」。②`validate_term_capitalization` 只对绑定术语（term_db/official_verified/显式 mandatory）强制执行，llm_proposed 等建议性术语不再产生大小写 finding。③review/finalize/finalize_batch 提示词加固：按值换算（亿=100 million）、禁止照抄源数字、禁止改专名/复合名大小写。④更新 1 个固化旧契约的测试 + 新增 10 个回归测试（含反馈例1 完整句），188 单测全绿。
+- **Why:** 英文部反馈（小牛智能体测试反馈-英文部-260909.docx）：初译数字正确、定稿被改错（11亿→11 billion、10亿→10 billion），审校把 China-Arab 改小写。旧校验器实证：正确的 1.1 billion 被报 critical「源文数字 11 未在译文中出现」+ suggested_fix「补译数字 11」，finalizer 盲从修复即损坏译文；错误的 11 billion 反而漏报放行。大小写同理：建议性术语的错标注被当成强制契约。
+- **Lesson:** 确定性 QA 的误报比漏报更危险——critical finding 会被 finalizer 强制执行，规则精度不够时审校环节反而成为错误源。校验器必须理解"语义等价但字面值不同"的转换（日期、数量级），且建议性（未人审）知识不得驱动强制修复。
+- **Next:** 反馈中另两条待办：双引号变单引号（例4）、无主语句全译祈使句（例5，需 translator 提示词层面补主语指引）。
+
 ### 2026-08-26 — 本地全链路启动验证通过（LLM key 已就位）
 - **Change:** `.env` 已含 `DASHSCOPE_API_KEY`（此前的唯一外部阻塞项解除）。启动顺序：`make migrate`（SQLite 已在 head）→ uvicorn :8100（/api/runs 200）→ Vite :3000（200）→ `scripts/smoke_agent_call.py` 真实 ToFu→DashScope 调用 status=done。
 - **Result / status:** ToFu runtime 常驻 :15000；API/前端 nohup 后台运行（日志 /tmp/govtrans-api.log、/tmp/govtrans-web.log）。E20（真实 E2E + benchmark vs baseline 回归）的外部前提已全部满足。

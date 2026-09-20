@@ -52,6 +52,72 @@ class TestNumberValidator:
     def test_english_ordinal_suffix_is_still_a_quantity(self):
         assert v.validate_numbers("排名第33位", "ranked 33rd") == []
 
+    def test_yi_converts_to_billion_by_value(self):
+        # 11亿 = 1.1 billion: digits legitimately differ after conversion.
+        assert (
+            v.validate_numbers("供电人口超过11亿", "serving over 1.1 billion people")
+            == []
+        )
+
+    def test_yi_converts_to_million_rendering(self):
+        assert v.validate_numbers("人口13亿", "a population of 1,300 million") == []
+
+    def test_wan_converts_to_plain_expanded_integer(self):
+        assert v.validate_numbers("新增就业1.2万人", "12,000 new jobs") == []
+
+    def test_duo_after_number_still_matches_magnitude(self):
+        findings = v.validate_numbers(
+            "10亿多选民将直接选举产生260多万名代表",
+            "more than 1 billion voters will directly elect over 2.6 million deputies",
+        )
+        assert findings == []
+
+    def test_wan_yi_converts_to_trillion(self):
+        assert v.validate_numbers("总量1万亿", "totalling 1 trillion") == []
+
+    def test_same_digits_rescaling_is_a_critical_conversion_error(self):
+        findings = v.validate_numbers("供电人口超过11亿", "serving over 11 billion people")
+        assert len(findings) == 1
+        assert findings[0]["severity"] == "critical"
+        assert findings[0]["category"] == "number"
+        assert "换算" in findings[0]["message"]
+
+    def test_ten_yi_is_not_ten_billion(self):
+        findings = v.validate_numbers("10亿多选民", "over 10 billion voters")
+        assert findings and findings[0]["severity"] == "critical"
+
+    def test_spelled_out_english_number_is_value_equivalent(self):
+        # 10亿 -> "one billion": no arabic digits on the target side at all.
+        assert (
+            v.validate_numbers("10亿多选民", "more than one billion voters") == []
+        )
+
+    def test_spelled_out_hundred_rendering(self):
+        assert v.validate_numbers("人口2亿", "a population of two hundred million") == []
+
+    def test_spelled_out_rescaling_is_also_a_conversion_error(self):
+        findings = v.validate_numbers("供电人口超过11亿", "over eleven billion people")
+        assert findings and findings[0]["severity"] == "critical"
+        assert "换算" in findings[0]["message"]
+
+    def test_missing_number_fix_says_verify_by_value_not_copy_digits(self):
+        findings = v.validate_numbers("增长6.5%，就业1200万", "grew 6.5%")
+        assert "核对" in findings[0]["suggested_fix"]
+        assert "补译数字" not in findings[0]["suggested_fix"]
+
+    def test_feedback_example_one_full_sentence(self):
+        source = (
+            "经营区域覆盖我国26个省（自治区、直辖市），"
+            "供电范围占国土面积的88%，供电人口超过11亿。"
+        )
+        translation = (
+            "The State Grid Corporation (SGCC) operates across 26 provinces "
+            "(autonomous regions and municipalities), with its power supply "
+            "area covering 88% of the country's land area and serving a "
+            "population exceeding 1.1 billion."
+        )
+        assert v.validate_numbers(source, translation) == []
+
 
 class TestDateValidator:
     def test_iso_match(self):
@@ -164,7 +230,11 @@ class TestTerminologyValidator:
         ]
         assert v.validate_terminology("完善全球治理", "improve global governance", glossary) == []
 
-    def test_common_term_title_case_is_blocking_when_rendering_is_used(self):
+    def test_advisory_term_never_forces_casing(self):
+        # Auto-extracted suggestions can misclassify a proper compound as a
+        # common term or store a wrongly cased target; enforcing them
+        # lowercased names like "China-Arab". Only binding (human-confirmed)
+        # terms carry a casing contract.
         glossary = [
             {
                 "source": "国内生产总值",
@@ -174,12 +244,45 @@ class TestTerminologyValidator:
                 "proper_name": False,
             }
         ]
-        findings = v.validate_term_capitalization(
-            "国内生产总值增长5%",
-            "The Gross Domestic Product (GDP) grew by 5%.",
-            glossary,
+        assert (
+            v.validate_term_capitalization(
+                "国内生产总值增长5%",
+                "The Gross Domestic Product (GDP) grew by 5%.",
+                glossary,
+            )
+            == []
         )
-        assert findings and findings[0]["severity"] == "major"
+
+    def test_advisory_lowercase_target_cannot_lowercase_proper_compound(self):
+        glossary = [
+            {
+                "source": "中阿",
+                "target": "china-arab",
+                "origin": "llm_proposed",
+                "mandatory": False,
+                "proper_name": False,
+            }
+        ]
+        assert (
+            v.validate_term_capitalization(
+                "中阿合作论坛", "The China-Arab States Cooperation Forum.", glossary
+            )
+            == []
+        )
+
+    def test_binding_proper_compound_keeps_internal_capitals(self):
+        glossary = [
+            {
+                "source": "中阿",
+                "target": "China-Arab",
+                "origin": "term_db",
+                "proper_name": True,
+            }
+        ]
+        findings = v.validate_term_capitalization(
+            "中阿合作", "the china-arab cooperation", glossary
+        )
+        assert findings and findings[0]["category"] == "capitalization"
 
     def test_common_term_sentence_case_and_proper_names_are_accepted(self):
         glossary = [

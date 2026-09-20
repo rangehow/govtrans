@@ -20,6 +20,65 @@ _DATE_ZH_RE = re.compile(
 _MONTH_ONLY_ZH_RE = re.compile(
     r"(?<!\d)(?P<month>\d{1,2})\s*月(?!\s*\d{1,2}\s*日?)"
 )
+# Chinese magnitude units change the digits themselves: 11亿 renders as
+# "1.1 billion", not "11 billion". A literal digit comparison flags the
+# correct translation, so value-equivalent pairs must be consumed first.
+_ZH_MAGNITUDE_RE = re.compile(
+    r"(?<![\d.])(\d+(?:\.\d+)?)\s*(?:多|余|约|近|超|超过)?\s*(千|百)?(万亿|亿|万)"
+)
+_ZH_MAGNITUDE_SCALE = {"万亿": 1_000_000_000_000, "亿": 100_000_000, "万": 10_000}
+_ZH_MAGNITUDE_MULT = {"千": 1_000, "百": 100, None: 1}
+# Digit-changing conventions form a closed set: zh magnitudes (万/亿/万亿)
+# and en number words (one billion). Units that translate 1:1 (公里 ->
+# kilometres, 吨 -> tonnes) never change digits, so they need no rule.
+_EN_NUMBER_WORDS = {
+    "a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11,
+    "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15,
+    "sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19,
+    "twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60,
+    "seventy": 70, "eighty": 80, "ninety": 90,
+}
+_EN_NUM_WORD_RE = (
+    r"(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|"
+    r"thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|"
+    r"thirty|forty|fifty|sixty|seventy|eighty|ninety)"
+)
+_EN_MAGNITUDE_RE = re.compile(
+    rf"(?<![\w.-])(\d+(?:,\d{{3}})*(?:\.\d+)?"
+    rf"|a|an"
+    rf"|(?:{_EN_NUM_WORD_RE}[ -])+(?:hundred(?:[ -]and)?[ -])?{_EN_NUM_WORD_RE}"
+    rf"|{_EN_NUM_WORD_RE}(?:[ -]hundred(?:[ -]and)?)?(?:[ -]{_EN_NUM_WORD_RE})?)"
+    rf"\s+(trillion|billion|million|thousand)s?\b",
+    flags=re.IGNORECASE,
+)
+_EN_MAGNITUDE_SCALE = {
+    "trillion": 1_000_000_000_000,
+    "billion": 1_000_000_000,
+    "million": 1_000_000,
+    "thousand": 1_000,
+}
+
+
+def _en_number_value(text: str) -> float | None:
+    """Parse an English cardinal phrase ("11", "1.1", "eleven", "two hundred
+    and twenty") into its value, or None when it is not a number phrase."""
+    cleaned = text.replace(",", "").strip()
+    try:
+        return float(cleaned)
+    except ValueError:
+        pass
+    current = 0
+    for token in re.split(r"[ -]+", cleaned.lower()):
+        if token == "and":
+            continue
+        if token == "hundred":
+            current = max(current, 1) * 100
+        elif token in _EN_NUMBER_WORDS:
+            current += _EN_NUMBER_WORDS[token]
+        else:
+            return None
+    return float(current) if current else None
 _EN_MONTHS = (
     r"January|Jan\.?|February|Feb\.?|March|Mar\.?|April|Apr\.?|May|"
     r"June|Jun\.?|July|Jul\.?|August|Aug\.?|September|Sept?\.?|"
@@ -203,6 +262,70 @@ def _matched_date_numbers(source: str, translation: str) -> tuple[list[str], lis
     return source_tokens, target_tokens
 
 
+def _matched_magnitude_numbers(
+    source: str, translation: str
+) -> tuple[list[str], list[str], list[Finding], list[tuple[str, float]]]:
+    """Match zh 万/亿/万亿 expressions against value-equivalent en renderings.
+
+    Returns (source digits to consume, target digits to consume, conversion
+    error findings, unmatched (digits, value) pairs). Same-value/different-
+    scale pairings (11亿 -> 11 billion, 11亿 -> eleven billion) are genuine
+    conversion errors worth blocking; value-equal pairs (11亿 -> 1.1 billion
+    / one point one billion) are consumed so the literal digit check does
+    not flag a correct conversion. Matches consume in order so one
+    rendering cannot hide a second occurrence.
+    """
+    source_tokens: list[str] = []
+    target_tokens: list[str] = []
+    findings: list[Finding] = []
+    unmatched: list[tuple[str, float]] = []
+    target_cursor = 0
+    for match in _ZH_MAGNITUDE_RE.finditer(source):
+        number, multiplier, unit = match.group(1), match.group(2), match.group(3)
+        value = (
+            float(number)
+            * _ZH_MAGNITUDE_MULT[multiplier]
+            * _ZH_MAGNITUDE_SCALE[unit]
+        )
+        remaining = translation[target_cursor:]
+        equivalent: re.Match[str] | None = None
+        same_digits: re.Match[str] | None = None
+        for candidate in _EN_MAGNITUDE_RE.finditer(remaining):
+            phrase_value = _en_number_value(candidate.group(1))
+            if phrase_value is None:
+                continue
+            en_value = (
+                phrase_value * _EN_MAGNITUDE_SCALE[candidate.group(2).lower()]
+            )
+            if abs(en_value - value) <= max(1.0, value * 1e-6):
+                equivalent = candidate
+                break
+            if same_digits is None and phrase_value == float(number):
+                same_digits = candidate
+        if equivalent is not None:
+            source_tokens.append(number)
+            target_tokens.extend(_number_tokens(equivalent.group(0)))
+            target_cursor += equivalent.end()
+        elif same_digits is not None:
+            findings.append(
+                {
+                    "category": "number",
+                    "severity": "critical",
+                    "source_span": match.group(0),
+                    "target_span": same_digits.group(0),
+                    "message": (
+                        f"数字换算错误：{match.group(0)} 不等于 "
+                        f"{same_digits.group(0)}"
+                    ),
+                    "suggested_fix": "按 亿=100 million、万=10 thousand 按值换算",
+                }
+            )
+            target_cursor += same_digits.end()
+        else:
+            unmatched.append((number, value))
+    return source_tokens, target_tokens, findings, unmatched
+
+
 def validate_numbers(
     source: str,
     translation: str,
@@ -215,6 +338,11 @@ def validate_numbers(
     Numeric components belonging to a correctly rendered Chinese date are
     consumed first, allowing e.g. ``8月24日`` -> ``August 24`` without
     weakening checks for other occurrences of 8 or 24 in the same segment.
+
+    Chinese magnitude units (万/亿/万亿) are consumed against value-equal
+    English renderings (11亿 -> 1.1 billion / 1,100 million / 1,100,000,000),
+    while same-digits rescalings (11亿 -> 11 billion) are reported as
+    critical conversion errors.
     """
     src = Counter(_norm_number(t) for t in _number_tokens(source))
     tgt = Counter(_norm_number(t) for t in _number_tokens(translation))
@@ -238,7 +366,19 @@ def validate_numbers(
         date_source_tokens, date_target_tokens = _matched_date_numbers(source, translation)
         _consume(src, date_source_tokens)
         _consume(tgt, date_target_tokens)
-    findings: list[Finding] = []
+    mag_source_tokens, mag_target_tokens, mag_findings, mag_unmatched = (
+        _matched_magnitude_numbers(source, translation)
+    )
+    _consume(src, mag_source_tokens)
+    _consume(tgt, mag_target_tokens)
+    # A fully expanded integer (1.2万 -> 12,000) is also a correct conversion.
+    for number, value in mag_unmatched:
+        if value.is_integer():
+            expanded = str(int(value))
+            if src[number] > 0 and tgt[expanded] > 0:
+                _consume(src, [number])
+                _consume(tgt, [expanded])
+    findings: list[Finding] = list(mag_findings)
     missing = src - tgt
     for token in sorted(missing):
         findings.append(
@@ -248,7 +388,10 @@ def validate_numbers(
                 "source_span": token,
                 "target_span": "",
                 "message": f"源文数字 {token} 未在译文中出现",
-                "suggested_fix": f"补译数字 {token}",
+                "suggested_fix": (
+                    f"按数值核对 {token} 是否遗漏；单位换算成立的数字"
+                    "（如 11亿→1.1 billion）不算遗漏，禁止照抄源数字"
+                ),
             }
         )
     return findings
@@ -410,11 +553,15 @@ def validate_terminology(source: str, translation: str, glossary: list[dict]) ->
 def validate_term_capitalization(
     source: str, translation: str, glossary: list[dict]
 ) -> list[Finding]:
-    """Enforce casing only for explicitly classified common-term suggestions.
+    """Enforce casing only for binding, human-confirmed terms.
 
-    Advisory terms never force a lexical choice. If the translation does use
-    that rendering, however, an explicit proper_name=false gives us a safe,
-    deterministic sentence-case contract.
+    Advisory suggestions (llm_proposed / unreviewed candidates) never force
+    casing: auto-extraction can misclassify a proper compound as a common
+    term or store a wrongly cased target, and enforcing it lowercased names
+    like "China-Arab". A casing contract exists only for curated terms
+    (term_db / official_verified or explicit mandatory=true): their database
+    spelling must survive exactly, including internal capitals, while only
+    the first character may change at the beginning of a sentence.
     """
     findings: list[Finding] = []
     for entry in glossary:
@@ -424,11 +571,7 @@ def validate_term_capitalization(
                 "term_db",
                 "official_verified",
             }
-        # Explicit common terms always carry a casing contract. Binding terms
-        # do too: database/curated spellings must survive exactly, including
-        # internal capitals, while only the first character may change at the
-        # beginning of a sentence.
-        if entry.get("proper_name") is not False and not mandatory:
+        if not mandatory:
             continue
         source_term = entry.get("source", "")
         target = entry.get("target", "")

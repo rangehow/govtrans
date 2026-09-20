@@ -25,6 +25,13 @@ official term), major (meaning drift, awkward official register), minor
 (style nits). Give a concrete suggested_fix for each.
 Apply the target language's normal orthography, capitalization, tense and
 modality conventions; do not impose English-only conventions on another language.
+Numbers: Chinese magnitude units convert by value (亿 = 100 million,
+万 = 10 thousand): 11亿 is "1.1 billion", never "11 billion". Flag a number
+only when the VALUE is wrong — a correctly converted number is not missing
+just because its digits differ from the source.
+Capitalization: never lowercase or otherwise alter proper names or
+established compound names (e.g., China-Arab, China-Africa, the Belt and
+Road Initiative). Only binding glossary entries may dictate casing.
 Judge only whether TRANSLATION represents SOURCE. Adjacent context explains
 cohesion but must not be demanded in this segment's translation.
 
