@@ -44,8 +44,27 @@ class RoleError(Exception):
     pass
 
 
+def _thinking_params(budget: int | None) -> dict[str, Any]:
+    """Map a per-role thinking budget to provider request params.
+
+    None keeps the provider default (full thinking on reasoning models);
+    0 disables thinking; N>0 caps the reasoning effort at N tokens. Only
+    reasoning models honour these; others ignore them.
+    """
+    if budget is None:
+        return {}
+    if budget <= 0:
+        return {"enable_thinking": False}
+    return {"thinking_budget": budget}
+
+
 async def _direct_provider_completion(
-    *, settings: Settings, messages: list[dict[str, str]], model: str, temperature: float
+    *,
+    settings: Settings,
+    messages: list[dict[str, str]],
+    model: str,
+    temperature: float,
+    thinking_budget: int | None = None,
 ) -> AgentResult:
     """Bounded fallback for a ToFu admission refusal.
 
@@ -61,6 +80,7 @@ async def _direct_provider_completion(
         "messages": messages,
         "temperature": temperature,
         "response_format": {"type": "json_object"},
+        **_thinking_params(thinking_budget),
     }
     headers = {
         "Authorization": f"Bearer {settings.dashscope_api_key.get_secret_value()}",
@@ -226,6 +246,7 @@ async def call_role(
     model: str,
     run_id: str | None = None,
     max_json_retries: int = 2,
+    thinking_budget: int | None = None,
 ) -> dict[str, Any]:
     """Invoke an LLM role via ToFu and return validated structured JSON."""
     template = load_prompt(prompt_name)
@@ -276,7 +297,7 @@ async def call_role(
                     messages=messages,
                     model=model,
                     provider=provider,
-                    config={"temperature": temperature},
+                    config={"temperature": temperature, **_thinking_params(thinking_budget)},
                     # The prompt fingerprint is essential: a run can issue many
                     # calls with the same role/prompt template.
                     idempotency_key=(
@@ -300,6 +321,7 @@ async def call_role(
                     messages=messages,
                     model=model,
                     temperature=temperature,
+                    thinking_budget=thinking_budget,
                 )
             payload = extract_json(result.text)
             validate_required_fields(payload, schema)

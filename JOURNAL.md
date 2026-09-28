@@ -29,6 +29,18 @@
 
 ## Entries
 
+### 2026-09-20（续）— 锁死日期快照 + 分角色思考预算（速度优化的最大杠杆）
+- **Change:** ①模型锁死为日期快照：translator/review `qwen3.7-max-2026-06-08`（40 条 gold set 实测 chrF 0.635/术语 0.942，为全部 11 个候选最佳）、fast `qwen3.7-flash-2026-07-15`。②新增分角色思考预算配置（`agents/roles/llm.py` `_thinking_params` + engine 5 个调用点 + evaluation runner 接线）：translator=256、review=全思考、fast=关闭。③`tofu_timeout_seconds` 默认 120→300（推理模型 6k 字符审校批次可合法超过 120s，超时中止会整批重跑，过紧超时是速度 bug）。④新增 tests/test_llm_roles.py，197 单测全绿。
+- **Why:** 用户拍板锁日期快照求可复现性。实测 `enable_thinking`/`thinking_budget` 是速度最大杠杆：qwen3.7-max-0608 全思考 13.5s/段 → budget256 7.3s（质量 chrF -0.003/术语 -0.017）→ 关闭 3.3s（质量明显掉，术语 0.94→0.88）；fast 层 29s→1.6s 无损。DashScope 兼容接口与 ToFu 0.17.4（lib/llm_dispatch）均支持这两个参数。
+- **Lesson:** ①带日期快照与滚动别名可能表现不同——qwen3.8-max 别名（0.634）已优于其 0902 快照（0.622），别名已指向更新 checkpoint；qwen3.8-flash-2026-04-16 列在模型目录里但 404 不可用，锁日期前必须逐个实测。②pydantic-settings 空串环境变量不会解析为 None，int|None 字段需 before-validator 兜底。③**基础设施发现**：本机 :15000 ToFu 是 0.17.4，已退役 /api/v1（repo 客户端在用），/api/v4/agent/run 报 503 database_unavailable——本机 E2E 目前跑不通，需用 compose 里的 0.17.0 sidecar 或升级客户端，待处理。
+- **Next:** ToFu 运行时对齐（v1 退役问题）；生产上观察 thinking budget 256 在全链路的实际延迟收益；如需更激进可评 translator 也关思考（质量换 2 倍速度）。
+
+### 2026-09-20 — gold set 扩充至 40 条 + 默认模型升级（qwen3.7-max / qwen3.8-flash）
+- **Change:** ①新 gold set `evaluation/gold/gov_whitepaper_v1.jsonl`：40 条来自已同步 SCIO 白皮书语料的真实官方句对（score≥0.85 初筛后**逐条人工核验对齐**，剔除 14 条错对齐；20 条含数字；14 条带术语表——术语仅收录"目标译法确实出现在官方参考译文中"的条目）。②正式基准（40 条 × 7 模型 × 项目原生 chrF/numbers/terminology 指标）：qwen3.7-max chrF 0.634/术语 0.917 双第一；qwen3.7-plus 0.621/0.892；qwen3.8-flash 0.618/0.879；deepseek-v4.1-flash 0.606/0.879；老一代 qwen-max/plus/turbo 0.586~0.601/0.87~0.89；数字指标全部 ≥0.99。③默认模型切换：translator qwen-plus→**qwen3.7-max**、review qwen-max→**qwen3.7-max**、fast qwen-turbo→**qwen3.8-flash**（config.py + .env.example + .env.production.example + docker-compose 同步）。192 单测全绿。
+- **Why:** 英文部反馈后评估底层模型；发现 DashScope 已有 qwen3.5~3.8 全系 + deepseek-v4.1-flash（同 key 可用）+ qwen-mt 专翻系列。3 条种子 gold set 不足以下结论，故扩充。qwen-mt 系列经实测不吃指令（mt-turbo 把提示词本身翻译了），与"注入术语/风格/证据"的 pipeline 架构不兼容，弃用。
+- **Lesson:** ①确定性对齐器的高分句对仍需人工核验——score 4.1/1.45 的离群高分反而多为错对齐（数字锚点被凑对），0.99 簇才是正常好对。②新代模型质量 +0.03~0.05 chrF 但延迟 4~6 倍（推理开销，10~20s/段）；pipeline 段落并发可消化 wall-clock，但吞吐成本真实存在，qwen3.7-plus 是省钱备选。③评测术语指标要防"空转"：glossary 必须由参考译文验证，否则 term_score 恒 1.0 无意义。
+- **Next:** 生产观察新模型在 pipeline 全链路（非单遍）下的表现；若成本敏感可将 translator 降为 qwen3.7-plus。
+
 ### 2026-09-19（续）— 数字校验的泛化：封闭集合 + 安全失败，而非枚举单位
 - **Change:** ①`_EN_MAGNITUDE_RE` 支持英文拼写数字（one billion / two hundred million / eleven billion），新增 `_en_number_value` 解析器；换算等价与换算错误判定统一改为"解析短语数值×量级"比较。②缺数字 finding 的 suggested_fix 从「补译数字 X」（诱导照抄）改为「按数值核对 X 是否遗漏……禁止照抄源数字」。③新增 5 个测试（拼写数字等价、拼写数字换算错误、修复指令措辞），192 单测全绿。
 - **Why:** 评审提问"规则无法涵盖所有单位"。答案的结构：1:1 翻译的单位（公里→km、吨→tonnes）数字不变、天然不误报，无需覆盖；会改变数字的惯例是封闭小集合=中文量级（万/亿/万亿，已覆盖）+英文拼写数字（本次补齐）；其余未知情况靠安全失败兜底——规则不认识时修复指令是"按值核对"而非"照抄数字"，最多漏报、绝不误改。

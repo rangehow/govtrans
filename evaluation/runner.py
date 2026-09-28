@@ -126,6 +126,7 @@ async def run_baseline(settings: Settings, tofu, *, gold_set_name: str) -> str:
             schema_name="baseline",
             model=settings.translator_model,
             run_id=None,
+            thinking_budget=settings.translator_thinking_budget,
         )
         hypothesis = result["translation"]
         # score against the SAME glossary as the pipeline — an empty glossary

@@ -35,7 +35,7 @@ services:
       TOFU_AGENT_MAX_INFLIGHT: ${TOFU_MAX_CONCURRENCY:-6}
       TOFU_AGENT_PROVIDER_BASE_URL: ${DASHSCOPE_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
       TOFU_AGENT_PROVIDER_API_KEY: ${DASHSCOPE_API_KEY:?Set DASHSCOPE_API_KEY in .env}
-      TOFU_AGENT_PROVIDER_MODEL: ${FAST_MODEL:-qwen-turbo}
+      TOFU_AGENT_PROVIDER_MODEL: ${FAST_MODEL:-qwen3.7-flash-2026-07-15}
     ports:
       - "127.0.0.1:${TOFU_PORT:-15001}:15001"
     mem_limit: ${TOFU_MEMORY_LIMIT:-4g}

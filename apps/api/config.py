@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -28,9 +28,35 @@ class Settings(BaseSettings):
     dashscope_api_key: SecretStr | None = Field(default=None)
 
     # Models per role
-    translator_model: str = Field(default="qwen-plus")
-    review_model: str = Field(default="qwen-max")
-    fast_model: str = Field(default="qwen-turbo")
+    # Pinned dated snapshots (reproducible; rolling aliases drift silently).
+    # From the 2026-09 gov_whitepaper_v1 benchmark (40 official SCIO pairs):
+    # qwen3.7-max-2026-06-08 led chrF (0.635) and terminology (0.942);
+    # qwen3.7-flash-2026-07-15 is the fastest pinnable flash tier.
+    translator_model: str = Field(default="qwen3.7-max-2026-06-08")
+    review_model: str = Field(default="qwen3.7-max-2026-06-08")
+    fast_model: str = Field(default="qwen3.7-flash-2026-07-15")
+    # Per-role thinking policy (reasoning models only). None = provider
+    # default (full thinking), 0 = thinking off, N>0 = thinking_budget=N.
+    # Measured on gov_whitepaper_v1: translator budget 256 keeps 99% of
+    # full-thinking quality at ~half the latency; fast tier loses nothing
+    # with thinking off (extraction tasks, 1.6s vs 29s full thinking).
+    translator_thinking_budget: int | None = Field(default=256)
+    review_thinking_budget: int | None = Field(default=None)
+    fast_thinking_budget: int | None = Field(default=0)
+
+    @field_validator(
+        "translator_thinking_budget",
+        "review_thinking_budget",
+        "fast_thinking_budget",
+        mode="before",
+    )
+    @classmethod
+    def _blank_thinking_budget_means_provider_default(cls, value: object) -> object:
+        # An empty or "none" env value means "leave the provider default"
+        # (full thinking), distinct from 0 which disables thinking.
+        if isinstance(value, str) and value.strip().lower() in {"", "none"}:
+            return None
+        return value
     embedding_model: str = Field(default="text-embedding-v3")
     rerank_model: str = Field(default="gte-rerank-v2")
 
@@ -39,7 +65,10 @@ class Settings(BaseSettings):
     # Optional for a trusted loopback development runtime; required by the
     # bundled production sidecar. Kept separate from the upstream model key.
     tofu_api_key: SecretStr | None = Field(default=None)
-    tofu_timeout_seconds: float = Field(default=120.0)
+    # Reasoning models think 10-20s even on short segments; a full 6k-char
+    # review batch can legitimately exceed 120s. An abort here restarts the
+    # whole batch, so a too-tight timeout is a speed bug, not a safeguard.
+    tofu_timeout_seconds: float = Field(default=300.0)
     tofu_max_retries: int = Field(default=6, ge=0, le=20)
     tofu_max_concurrency: int = Field(default=12, ge=1, le=64)
     tofu_admission_timeout_seconds: float = Field(default=30.0, ge=0.0, le=1_800.0)

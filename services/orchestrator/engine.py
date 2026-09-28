@@ -1051,6 +1051,7 @@ class Orchestrator:
             schema_name="analyze",
             model=self.settings.fast_model,
             run_id=run_id,
+            thinking_budget=self.settings.fast_thinking_budget,
         )
         with SessionLocal() as session:
             run = session.get(TranslationRun, run_id)
@@ -1106,6 +1107,7 @@ class Orchestrator:
             schema_name="term_extract",
             model=self.settings.fast_model,
             run_id=run_id,
+            thinking_budget=self.settings.fast_thinking_budget,
         )
         # Analysis and term extraction run in parallel. Re-read the domain
         # after the model call so terminology lookup benefits from analysis
@@ -1428,6 +1430,7 @@ class Orchestrator:
                     schema_name="translation_batch",
                     model=self.settings.translator_model,
                     run_id=run_id,
+                    thinking_budget=self.settings.translator_thinking_budget,
                 )
                 translated = result.get("segments", [])
                 resolved_ids = [
@@ -1683,6 +1686,7 @@ class Orchestrator:
                     schema_name="document_review",
                     model=self.settings.review_model,
                     run_id=run_id,
+                    thinking_budget=self.settings.review_thinking_budget,
                 )
             findings: list[tuple[str, dict[str, Any]]] = []
             for raw in result.get("issues", []):
@@ -1981,6 +1985,11 @@ class Orchestrator:
                     schema_name="finalize_batch",
                     model=finalizer_model,
                     run_id=run_id,
+                    thinking_budget=(
+                        self.settings.review_thinking_budget
+                        if escalated
+                        else self.settings.translator_thinking_budget
+                    ),
                 )
             returned = result.get("segments", [])
             resolved_ids = [
